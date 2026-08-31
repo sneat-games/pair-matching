@@ -1,14 +1,14 @@
 package paircommands
 
 import (
+	"github.com/prizarena/prizarena-public/pabot"
+	"github.com/prizarena/prizarena-public/pamodels"
+	"github.com/sneat-games/pair-matching/server-go/pairsecrets"
+	"github.com/sneat-games/pair-matching/server-go/pairtrans"
+	"github.com/strongo/bots-api-telegram"
 	"github.com/strongo/bots-framework/core"
 	"github.com/strongo/bots-framework/platforms/telegram"
 	"strings"
-	"github.com/prizarena/prizarena-public/pabot"
-	"github.com/prizarena/prizarena-public/pamodels"
-	"github.com/strongo/bots-api-telegram"
-				"github.com/prizarena/pair-matching/server-go/pairtrans"
-	"github.com/prizarena/pair-matching/server-go/pairsecrets"
 )
 
 var inlineQueryCommand = bots.NewInlineQueryCommand(
@@ -52,9 +52,8 @@ var inlineQueryCommand = bots.NewInlineQueryCommand(
 // 	return
 // }
 
-
 func inlineQueryPlay(whc bots.WebhookContext, inlineQuery pabot.InlineQueryContext) (m bots.MessageFromBot, err error) {
-	return pabot.ProcessInlineQueryTournament(whc, inlineQuery, pairsecrets.PrizarenaGameID, pairsecrets.PrizarenaToken,"tournament",
+	return pabot.ProcessInlineQueryTournament(whc, inlineQuery, pairsecrets.PrizarenaGameID, pairsecrets.PrizarenaToken, "tournament",
 		func(tournament pamodels.Tournament) (m bots.MessageFromBot, err error) {
 			// c := whc.Context()
 

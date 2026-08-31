@@ -1,11 +1,11 @@
 package pairmodels
 
 import (
-	"github.com/strongo/db"
-	"time"
-	"github.com/prizarena/turn-based"
 	"github.com/pkg/errors"
+	"github.com/prizarena/turnbased"
+	"github.com/strongo/db"
 	"strings"
+	"time"
 )
 
 type PairsPlayerEntity struct {
@@ -20,8 +20,9 @@ type PairsPlayerEntity struct {
 }
 
 func (entity PairsPlayerEntity) IsAlreadyMatched(v string) bool {
-	return strings.Contains("," + entity.MatchedItems + ",", ","+v+",")
+	return strings.Contains(","+entity.MatchedItems+",", ","+v+",")
 }
+
 const PairsPlayerKind = "P"
 
 type PairsPlayer struct {

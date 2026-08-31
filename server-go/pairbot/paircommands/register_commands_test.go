@@ -1,8 +1,8 @@
 package paircommands
 
 import (
-	"testing"
 	"github.com/strongo/bots-framework/core"
+	"testing"
 )
 
 func TestRegisterPairCommands(t *testing.T) {

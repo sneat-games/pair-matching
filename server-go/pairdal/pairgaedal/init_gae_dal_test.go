@@ -1,8 +1,8 @@
 package pairgaedal
 
 import (
+	"github.com/sneat-games/pair-matching/server-go/pairdal"
 	"testing"
-	"github.com/prizarena/pair-matching/server-go/pairdal"
 )
 
 func TestRegisterDal(t *testing.T) {

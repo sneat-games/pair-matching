@@ -3,13 +3,13 @@ package pairapp
 import (
 	"context"
 	"github.com/pkg/errors"
+	"github.com/sneat-games/pair-matching/server-go/pairmodels"
+	"github.com/sneat-games/pair-matching/server-go/pairtrans"
 	"github.com/strongo/app"
 	"github.com/strongo/bots-framework/core"
 	"github.com/strongo/bots-framework/platforms/telegram"
 	"reflect"
 	"time"
-	"github.com/prizarena/pair-matching/server-go/pairmodels"
-	"github.com/prizarena/pair-matching/server-go/pairtrans"
 )
 
 type pairAppContext struct {
@@ -78,4 +78,3 @@ func (appCtx pairAppContext) GetBotChatEntityFactory(platform string) func() bot
 }
 
 var _ bots.BotAppContext = (*pairAppContext)(nil)
-

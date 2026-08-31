@@ -1,8 +1,8 @@
 package pairrouting
 
 import (
+	"github.com/sneat-games/pair-matching/server-go/pairbot/paircommands"
 	"github.com/strongo/bots-framework/core"
-	"github.com/prizarena/pair-matching/server-go/pairbot/paircommands"
 )
 
 var WebhooksRouter = bots.NewWebhookRouter(

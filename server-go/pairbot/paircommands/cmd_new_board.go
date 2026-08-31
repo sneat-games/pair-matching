@@ -1,36 +1,36 @@
 package paircommands
 
 import (
-	"github.com/strongo/bots-framework/core"
-	"net/url"
-	"fmt"
-	"github.com/prizarena/pair-matching/server-go/pairmodels"
-	"github.com/strongo/bots-framework/platforms/telegram"
-	"github.com/prizarena/pair-matching/server-go/pairdal"
-	"context"
-	"github.com/strongo/db"
-	"github.com/prizarena/turn-based"
-		"github.com/strongo/log"
-	"time"
 	"bytes"
-	"strconv"
+	"context"
+	"fmt"
 	"github.com/prizarena/prizarena-public/pamodels"
+	"github.com/prizarena/turnbased"
+	"github.com/sneat-games/pair-matching/server-go/pairdal"
+	"github.com/sneat-games/pair-matching/server-go/pairmodels"
+	"github.com/strongo/bots-framework/core"
+	"github.com/strongo/bots-framework/platforms/telegram"
+	"github.com/strongo/db"
+	"github.com/strongo/log"
+	"net/url"
+	"strconv"
 	"strings"
+	"time"
 )
 
 const newBoardCommandCode = "new"
 
 func getNewBoardCallbackData(width, height, maxUsersLimit int, tournamentID, lang string) string {
 	s := new(bytes.Buffer)
-	fmt.Fprintf(s,"new?s=%v&l=%v", turnbased.NewSize(width, height), lang)
+	fmt.Fprintf(s, "new?s=%v&l=%v", turnbased.NewSize(width, height), lang)
 	if tournamentID != "" {
 		if i := strings.Index(tournamentID, pamodels.TournamentIDSeparator); i >= 0 {
 			tournamentID = tournamentID[i+1:]
 		}
-		fmt.Fprint(s, "&t=" + tournamentID)
+		fmt.Fprint(s, "&t="+tournamentID)
 	}
 	if maxUsersLimit > 0 {
-		fmt.Fprint(s, "&max=" + strconv.Itoa(maxUsersLimit))
+		fmt.Fprint(s, "&max="+strconv.Itoa(maxUsersLimit))
 	} else if maxUsersLimit < 0 {
 		panic(fmt.Sprintf("maxUsersLimit < 0: %v", maxUsersLimit))
 	}
@@ -96,7 +96,7 @@ var newBoardCommand = bots.NewCallbackCommand(
 					}
 				}
 				now := time.Now()
-				if board.Created.Before(now.Add(-time.Second*2)) {
+				if board.Created.Before(now.Add(-time.Second * 2)) {
 					board.Created = now
 					board.Size = size
 					board.Cells = pairmodels.NewCells(size.Width(), size.Height())
@@ -112,10 +112,10 @@ var newBoardCommand = bots.NewCallbackCommand(
 				changed = true
 				board.PairsBoardEntity = &pairmodels.PairsBoardEntity{
 					BoardEntityBase: turnbased.BoardEntityBase{
-						Created: time.Now(),
+						Created:       time.Now(),
 						CreatorUserID: userID,
-						UsersMax: maxUsersLimit,
-						TournamentID: tournamentID,
+						UsersMax:      maxUsersLimit,
+						TournamentID:  tournamentID,
 					},
 					Size:  size,
 					Cells: pairmodels.NewCells(size.Width(), size.Height()),
@@ -137,7 +137,7 @@ var newBoardCommand = bots.NewCallbackCommand(
 		}
 		// TODO: check and notify if another user already selected different board size.
 		tournament := pamodels.Tournament{StringID: db.NewStrID(board.TournamentID)}
-		m, err = renderPairsBoardMessage(c, whc, tournament, board, "", userID,nil)
+		m, err = renderPairsBoardMessage(c, whc, tournament, board, "", userID, nil)
 		return
 	},
 )

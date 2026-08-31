@@ -1,20 +1,20 @@
 package paircommands
 
 import (
-	"github.com/strongo/app"
-	"github.com/prizarena/prizarena-public/pamodels"
-	"github.com/prizarena/pair-matching/server-go/pairmodels"
-	"github.com/strongo/bots-framework/core"
-	"github.com/strongo/bots-api-telegram"
-	"fmt"
-	"strings"
-	"github.com/prizarena/turn-based"
 	"bytes"
-	"github.com/prizarena/pair-matching/server-go/pairtrans"
-	"github.com/strongo/emoji/go/emoji"
 	"context"
-	"github.com/strongo/log"
+	"fmt"
+	"github.com/prizarena/prizarena-public/pamodels"
+	"github.com/prizarena/turnbased"
+	"github.com/sneat-games/pair-matching/server-go/pairmodels"
+	"github.com/sneat-games/pair-matching/server-go/pairtrans"
+	"github.com/strongo/app"
+	"github.com/strongo/bots-api-telegram"
+	"github.com/strongo/bots-framework/core"
 	"github.com/strongo/emoji/go"
+	"github.com/strongo/emoji/go/emoji"
+	"github.com/strongo/log"
+	"strings"
 )
 
 func renderPairsBoardMessage(c context.Context, t strongo.SingleLocaleTranslator, tournament pamodels.Tournament, board pairmodels.PairsBoard, matchedTile, userID string, players []pairmodels.PairsPlayer) (m bots.MessageFromBot, err error) {
@@ -53,7 +53,7 @@ func renderPairsBoardMessage(c context.Context, t strongo.SingleLocaleTranslator
 		}
 	}
 	if isCompleted {
-		fmt.Fprintf(text,"\n<b>%v:</b>", t.Translate(pairtrans.Board))
+		fmt.Fprintf(text, "\n<b>%v:</b>", t.Translate(pairtrans.Board))
 		text.WriteString(board.DrawBoard("", "\n"))
 		fmt.Fprintf(text, "\n<b>%v</b>", t.Translate(pairtrans.ChooseSizeOfNextBoard))
 
@@ -79,7 +79,7 @@ func renderPairsBoardMessage(c context.Context, t strongo.SingleLocaleTranslator
 			kbRow := make([]tgbotapi.InlineKeyboardButton, width)
 			const (
 				isMatched = " "
-				closed = emoji.WhiteLargeSquare
+				closed    = emoji.WhiteLargeSquare
 			)
 			for x, cell := range row {
 				var text string
@@ -109,4 +109,3 @@ func renderPairsBoardMessage(c context.Context, t strongo.SingleLocaleTranslator
 	m.Text = text.String()
 	return
 }
-

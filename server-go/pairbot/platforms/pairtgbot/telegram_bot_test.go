@@ -1,9 +1,9 @@
 package pairtgbot
 
 import (
-	"testing"
 	"github.com/strongo/app"
 	"github.com/strongo/bots-framework/core"
+	"testing"
 )
 
 func TestBots(t *testing.T) {

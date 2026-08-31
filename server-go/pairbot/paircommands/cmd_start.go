@@ -1,22 +1,22 @@
 package paircommands
 
 import (
-	"github.com/strongo/bots-framework/core"
-	"github.com/strongo/bots-api-telegram"
-	"net/url"
-	"github.com/strongo/bots-framework/platforms/telegram"
-	"github.com/prizarena/pair-matching/server-go/pairtrans"
-			"github.com/strongo/log"
 	"github.com/prizarena/prizarena-public/pabot"
-	"github.com/prizarena/pair-matching/server-go/pairsecrets"
+	"github.com/sneat-games/pair-matching/server-go/pairsecrets"
+	"github.com/sneat-games/pair-matching/server-go/pairtrans"
+	"github.com/strongo/bots-api-telegram"
+	"github.com/strongo/bots-framework/core"
+	"github.com/strongo/bots-framework/platforms/telegram"
+	"github.com/strongo/log"
+	"net/url"
 )
 
 const startCommandCommandCode = "start"
 
 var startCommand = bots.Command{
-	Code:     startCommandCommandCode,
-	Commands: []string{"/start"},
-	Action:   startAction,
+	Code:           startCommandCommandCode,
+	Commands:       []string{"/start"},
+	Action:         startAction,
 	CallbackAction: startCallbackAction,
 }
 
@@ -33,7 +33,7 @@ func startCallbackAction(whc bots.WebhookContext, callbackUrl *url.URL) (m bots.
 		m.BotMessage = telegram.CallbackAnswer(tgbotapi.AnswerCallbackQueryConfig{
 			Text: "Unknown language: " + lang,
 		})
-		log.Errorf(whc.Context(), "Unknown language: " + lang)
+		log.Errorf(whc.Context(), "Unknown language: "+lang)
 		return
 	}
 	if lang != "" {
@@ -73,8 +73,8 @@ func startAction(whc bots.WebhookContext) (m bots.MessageFromBot, err error) {
 	switchInlinePlay := whc.Locale().Code5[:2]
 	m.Keyboard = tgbotapi.NewInlineKeyboardMarkup(
 		[]tgbotapi.InlineKeyboardButton{
-			{Text: "Русский", CallbackData: "start?l=ru&cl="+whc.Locale().Code5},
-			{Text: "English", CallbackData: "start?l=en&cl="+whc.Locale().Code5},
+			{Text: "Русский", CallbackData: "start?l=ru&cl=" + whc.Locale().Code5},
+			{Text: "English", CallbackData: "start?l=en&cl=" + whc.Locale().Code5},
 		},
 		[]tgbotapi.InlineKeyboardButton{
 			{Text: whc.Translate(pairtrans.SinglePlayer), CallbackData: newSinleplayerCommandCode},

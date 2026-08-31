@@ -1,8 +1,8 @@
 package pairmodels
 
 import (
-	"github.com/strongo/db"
 	"github.com/strongo/app"
+	"github.com/strongo/db"
 )
 
 const UserKind = "User"

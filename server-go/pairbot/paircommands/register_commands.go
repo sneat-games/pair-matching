@@ -1,9 +1,9 @@
 package paircommands
 
 import (
-	"github.com/strongo/bots-framework/core"
 	"github.com/prizarena/prizarena-public/pabot"
-				"github.com/prizarena/pair-matching/server-go/pairsecrets"
+	"github.com/sneat-games/pair-matching/server-go/pairsecrets"
+	"github.com/strongo/bots-framework/core"
 )
 
 func RegisterPairCommands(router bots.WebhooksRouter) {

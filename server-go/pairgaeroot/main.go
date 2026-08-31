@@ -1,9 +1,9 @@
 package pairgaeroot
 
 import (
-	"github.com/strongo/log"
+	"github.com/sneat-games/pair-matching/server-go/pairapp"
 	"github.com/strongo/bots-framework/hosts/appengine"
-	"github.com/prizarena/pair-matching/server-go/pairapp"
+	"github.com/strongo/log"
 )
 
 func init() {

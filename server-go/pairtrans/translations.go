@@ -1,8 +1,8 @@
 package pairtrans
 
 import (
-	"github.com/strongo/bots-framework/core"
 	"github.com/prizarena/prizarena-public/patrans"
+	"github.com/strongo/bots-framework/core"
 )
 
 func init() {

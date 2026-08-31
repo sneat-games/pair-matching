@@ -1,17 +1,17 @@
 package pairmodels
 
 import (
-	"github.com/strongo/db"
 	"bytes"
-	"github.com/prizarena/turn-based"
-	"math/rand"
-	"time"
 	"fmt"
-	"strings"
+	"github.com/prizarena/turnbased"
+	"github.com/strongo/db"
 	"github.com/strongo/db/gaedb"
-	"google.golang.org/appengine/datastore"
 	"github.com/strongo/emoji/go"
 	"github.com/strongo/slices"
+	"google.golang.org/appengine/datastore"
+	"math/rand"
+	"strings"
+	"time"
 )
 
 type PairsBoardEntity struct {
@@ -193,4 +193,3 @@ func NewCells(width, height int) string {
 
 	return strings.Join(items, ",")
 }
-

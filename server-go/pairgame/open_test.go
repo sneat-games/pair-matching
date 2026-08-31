@@ -1,11 +1,11 @@
 package pairgame
 
 import (
-	"testing"
-	"github.com/prizarena/pair-matching/server-go/pairmodels"
+	"github.com/prizarena/turnbased"
+	"github.com/sneat-games/pair-matching/server-go/pairmodels"
 	"github.com/strongo/db"
-	"github.com/prizarena/turn-based"
 	"strconv"
+	"testing"
 	"time"
 )
 
@@ -161,7 +161,7 @@ func TestOpenCell(t *testing.T) {
 
 				stepPlayer := playersByID[step.player]
 
-				if changed, _, _,	 err := OpenCell(&theTestCase.board, step.ca, stepPlayer, players); err != nil {
+				if changed, _, _, err := OpenCell(&theTestCase.board, step.ca, stepPlayer, players); err != nil {
 					t.Fatalf("Error at step #%v: %v", i, err)
 				} else {
 					if changed != step.expected.changed {

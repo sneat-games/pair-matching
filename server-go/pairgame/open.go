@@ -1,16 +1,16 @@
 package pairgame
 
 import (
-	"github.com/prizarena/pair-matching/server-go/pairmodels"
-	"github.com/prizarena/turn-based"
-	"github.com/pkg/errors"
 	"bytes"
+	"github.com/pkg/errors"
+	"github.com/prizarena/turnbased"
+	"github.com/sneat-games/pair-matching/server-go/pairmodels"
 	"strings"
-	)
+)
 
 var (
 	ErrAlreadyMatched   = errors.New("already matched")
-	ErrAlreadyOpen = errors.New("already open")
+	ErrAlreadyOpen      = errors.New("already open")
 	ErrBoardIsCompleted = errors.New("board is already completed")
 )
 

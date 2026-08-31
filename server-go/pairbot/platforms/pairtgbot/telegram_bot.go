@@ -1,12 +1,12 @@
 package pairtgbot
 
 import (
+	"context"
+	"github.com/sneat-games/pair-matching/server-go/pairsecrets"
 	"github.com/strongo/app"
 	"github.com/strongo/bots-framework/core"
 	"github.com/strongo/bots-framework/platforms/telegram"
-	"context"
 	"github.com/strongo/log"
-	"github.com/prizarena/pair-matching/server-go/pairsecrets"
 )
 
 var botsBy bots.SettingsBy

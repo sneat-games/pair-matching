@@ -16,10 +16,10 @@ const (
 	ChooseSizeOfNextBoard       = "ChooseSizeOfNextBoard"
 	Tournaments                 = "Tournaments"
 	ChallengeFriendCommandText  = "ChallengeFriendCommandText"
-	SinglePlayerMatchedOne    = "SinglePlayerMatchedOne"
+	SinglePlayerMatchedOne      = "SinglePlayerMatchedOne"
 	SinglePlayerMatchedCount    = "SinglePlayerMatchedCount"
-	Flips = "Flips"
-	FlagOfTheDay = "FalgOfTheDay"
+	Flips                       = "Flips"
+	FlagOfTheDay                = "FalgOfTheDay"
 
 	MT_HOW_TO_START_NEW_GAME = "MT_HOW_TO_START_NEW_GAME"
 	MT_NEW_GAME_WELCOME      = "MT_NEW_GAME_WELCOME"

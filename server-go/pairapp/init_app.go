@@ -1,11 +1,11 @@
 package pairapp
 
 import (
-	"github.com/strongo/bots-framework/core"
 	"github.com/julienschmidt/httprouter"
+	"github.com/sneat-games/pair-matching/server-go/pairbot"
+	"github.com/sneat-games/pair-matching/server-go/pairdal/pairgaedal"
+	"github.com/strongo/bots-framework/core"
 	"net/http"
-	"github.com/prizarena/pair-matching/server-go/pairdal/pairgaedal"
-	"github.com/prizarena/pair-matching/server-go/pairbot"
 )
 
 func InitApp(botHost bots.BotHost) {

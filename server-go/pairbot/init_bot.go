@@ -1,14 +1,14 @@
 package pairbot
 
 import (
-	"github.com/julienschmidt/httprouter"
-	"github.com/strongo/bots-framework/core"
-	"github.com/strongo/app"
-	"github.com/strongo/bots-framework/platforms/telegram"
 	"context"
-	"github.com/prizarena/pair-matching/server-go/pairbot/platforms/pairtgbot"
-	"github.com/prizarena/pair-matching/server-go/pairbot/pairrouting"
-	"github.com/prizarena/pair-matching/server-go/pairsecrets"
+	"github.com/julienschmidt/httprouter"
+	"github.com/sneat-games/pair-matching/server-go/pairbot/pairrouting"
+	"github.com/sneat-games/pair-matching/server-go/pairbot/platforms/pairtgbot"
+	"github.com/sneat-games/pair-matching/server-go/pairsecrets"
+	"github.com/strongo/app"
+	"github.com/strongo/bots-framework/core"
+	"github.com/strongo/bots-framework/platforms/telegram"
 )
 
 func InitBot(httpRouter *httprouter.Router, botHost bots.BotHost, appContext bots.BotAppContext) error {
@@ -36,7 +36,7 @@ func InitBot(httpRouter *httprouter.Router, botHost bots.BotHost, appContext bot
 		telegram.NewTelegramWebhookHandler(
 			func(c context.Context) bots.SettingsBy {
 				return pairtgbot.Bots(c, strongo.EnvProduction, pairrouting.WebhooksRouter) // gaestandard.GetEnvironment(c)
-			},             // Maps of bots by code, language, token, etc...
+			}, // Maps of bots by code, language, token, etc...
 			newTranslator, // Creates newTranslator that gets a context.Context (for logging purpose)
 		),
 	)

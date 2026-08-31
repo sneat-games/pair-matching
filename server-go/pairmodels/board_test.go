@@ -1,16 +1,16 @@
 package pairmodels
 
 import (
-	"testing"
-	"strings"
 	"fmt"
-	"github.com/prizarena/turn-based"
+	"github.com/prizarena/turnbased"
+	"strings"
+	"testing"
 )
 
 func TestPairsBoardEntity_DrawBoard_ascii(t *testing.T) {
 	board := PairsBoardEntity{
 		Cells: "1,2,3,4,5,6,7,8,9,a,b,c",
-		Size: "C4",
+		Size:  "C4",
 	}
 	expects := strings.Join([]string{"", "123", "456", "789", "abc", ""}, "\n")
 	if result := board.DrawBoard("", "\n"); result != expects {
@@ -21,7 +21,7 @@ func TestPairsBoardEntity_DrawBoard_ascii(t *testing.T) {
 func TestPairsBoardEntity_DrawBoard_emoji(t *testing.T) {
 	board := PairsBoardEntity{
 		Cells: "🍇,🍈,🍉,🍊,🍋,🍌,🍍,🍎,🍏,🍐,🍑,🍒",
-		Size: "C4",
+		Size:  "C4",
 	}
 	expects := strings.Join([]string{"", "🍇🍈🍉", "🍊🍋🍌", "🍍🍎🍏", "🍐🍑🍒", ""}, "\n")
 	if result := board.DrawBoard("", "\n"); result != expects {
@@ -49,11 +49,10 @@ func TestPairsBoardEntity_DrawBoard_emoji(t *testing.T) {
 		}
 	}
 
-	testShuffle(2,2)
-	testShuffle(3,4)
-	testShuffle(8,8)
+	testShuffle(2, 2)
+	testShuffle(3, 4)
+	testShuffle(8, 8)
 }
-
 
 func TestShuffle(t *testing.T) {
 
@@ -63,12 +62,12 @@ func TestShuffle(t *testing.T) {
 			t.Errorf("Iteration %d shuffling %vx%v: %v", n, x, y, err)
 		}
 	}
-	test(1,2, 2)
-	test(2,3, 4)
-	test(3,8, 8)
+	test(1, 2, 2)
+	test(2, 3, 4)
+	test(3, 8, 8)
 }
 
-func verifyBoard(x, y int, s string) (err error){
+func verifyBoard(x, y int, s string) (err error) {
 	var itemsCount int
 	counts := make(map[string]int, x*y/2)
 	for _, r := range strings.Split(s, ",") {
@@ -80,7 +79,7 @@ func verifyBoard(x, y int, s string) (err error){
 
 	}
 	if itemsCount != x*y {
-		fmt.Errorf("Expectet %v items, got %v", x*y, itemsCount)
+		return fmt.Errorf("Expectet %v items, got %v", x*y, itemsCount)
 	}
 	return nil
 }
@@ -88,7 +87,7 @@ func verifyBoard(x, y int, s string) (err error){
 func TestGetCell(t *testing.T) {
 	board := PairsBoardEntity{
 		Cells: "🍇,🍈,🍉,🍊,🍋,🍌,🍍,🍎,🍏,🍐,🍑,🍒",
-		Size: "C4",
+		Size:  "C4",
 	}
 	testCell := func(ca turnbased.CellAddress, expects string) {
 		t.Helper()
@@ -116,7 +115,7 @@ func TestGetCell(t *testing.T) {
 func TestPairsBoardEntity_IsCompleted(t *testing.T) {
 	board := PairsBoardEntity{
 		Cells: "🍇,🍈,🍉,🍊,🍋,🍌,🍇,🍈,🍉,🍊,🍋,🍌",
-		Size: "C4",
+		Size:  "C4",
 	}
 
 	p1 := PairsPlayer{
@@ -154,7 +153,7 @@ func TestPairsBoardEntity_IsCompleted(t *testing.T) {
 
 	board = PairsBoardEntity{
 		Cells: "🖲,🇲🇹,🖲,🛎,🗑,🗑,🚏,🚏,👃,🇲🇬,🇲🇹,🗃,👃,🛎,🗃,🇲🇬",
-		Size: "D4",
+		Size:  "D4",
 	}
 
 	p1 = PairsPlayer{

@@ -1,15 +1,15 @@
 package paircommands
 
 import (
+	"bytes"
+	"fmt"
+	"github.com/prizarena/prizarena-public/pamodels"
+	"github.com/sneat-games/pair-matching/server-go/pairtrans"
+	"github.com/strongo/app"
+	"github.com/strongo/bots-api-telegram"
 	"github.com/strongo/bots-framework/core"
 	"net/url"
-	"github.com/strongo/bots-api-telegram"
-	"fmt"
 	"strconv"
-	"github.com/strongo/app"
-	"bytes"
-	"github.com/prizarena/pair-matching/server-go/pairtrans"
-	"github.com/prizarena/prizarena-public/pamodels"
 )
 
 const newSinleplayerCommandCode = "singleplayer"
@@ -72,7 +72,6 @@ var newNonTournamentBoardSizesKeyboards = map[string]*tgbotapi.InlineKeyboardMar
 	"en-US": getNewPlayTgInlineKbMarkup("en-US", "", 0),
 	"ru-RU": getNewPlayTgInlineKbMarkup("ru-RU", "", 0),
 }
-
 
 func getNewPlayText(t strongo.SingleLocaleTranslator, tournament pamodels.Tournament) string {
 	text := new(bytes.Buffer)

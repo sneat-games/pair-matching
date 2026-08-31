@@ -1,8 +1,8 @@
 package pairgaedal
 
 import (
+	"github.com/sneat-games/pair-matching/server-go/pairdal"
 	"github.com/strongo/db/gaedb"
-	"github.com/prizarena/pair-matching/server-go/pairdal"
 )
 
 func RegisterDal() {
