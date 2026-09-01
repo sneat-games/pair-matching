@@ -11,4 +11,6 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
-server-go/pairsecrets/secrets.go
+specscore.local.yaml
+**/.*.lifecycle-transaction.lock
+.specscore-lifecycle.lock

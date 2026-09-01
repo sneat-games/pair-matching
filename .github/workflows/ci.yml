@@ -1,0 +1,31 @@
+name: Go CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+
+  strongo_workflow:
+    permissions:
+      contents: write
+    # Pinned to an exact tag, not the moving @v1 tag: @v1 has been retired
+    # because it drifted patch releases behind while still accepting inputs
+    # it did not implement, so a configured input could silently no-op.
+    uses: strongo/cicd/.github/workflows/workflow.yml@v1.14.17
+
+    secrets:
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+    with:
+      disable-version-bumping: true
+      go_version: '1.27.0'
+      # server-go/pairgame (the whole module as of this floor) measures
+      # 93.8% via `go test -cover`; set just below that so an incidental
+      # rounding difference in CI's toolchain doesn't false-fail, while still
+      # catching a real regression in the pairgame engine's coverage.
+      min_test_coverage_percent: 93
