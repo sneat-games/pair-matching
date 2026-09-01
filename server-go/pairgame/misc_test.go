@@ -5,70 +5,109 @@ import (
 	"testing"
 )
 
-func TestOwnerString(t *testing.T) {
-	cases := map[Owner]string{Unmatched: "unmatched", Human: "human", Robot: "robot"}
-	for o, want := range cases {
-		if got := o.String(); got != want {
-			t.Errorf("Owner(%d).String() = %q, want %q", o, got, want)
-		}
-	}
-}
-
-func TestOwnerOther(t *testing.T) {
-	if Human.Other() != Robot {
-		t.Errorf("Human.Other() = %v, want Robot", Human.Other())
-	}
-	if Robot.Other() != Human {
-		t.Errorf("Robot.Other() = %v, want Human", Robot.Other())
-	}
-}
-
-func TestOwnerOtherPanicsOnUnmatched(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("Unmatched.Other() did not panic")
-		}
-	}()
-	Unmatched.Other()
-}
-
 func TestNewGameRejectsInvalidSizeIndex(t *testing.T) {
 	for _, idx := range []int{-1, len(Sizes)} {
-		if _, err := NewGame(LayoutInline, idx, 1, nil, 0, Human); err != ErrInvalidCell {
-			t.Errorf("NewGame(sizeIndex=%d) = %v, want ErrInvalidCell", idx, err)
+		if _, err := NewGame(LayoutInline, idx, 1, nil, []PlayerSetup{{}}); err != ErrInvalidSizeIndex {
+			t.Errorf("NewGame(sizeIndex=%d) = %v, want ErrInvalidSizeIndex", idx, err)
 		}
 	}
 }
 
-func TestNewGameRejectsOversizedDifficulty(t *testing.T) {
-	sizeIndex := 7 // 6x6, where inline mode's MaxDifficulty < Cells()
-	max := MaxDifficulty(LayoutInline, sizeIndex)
-	if _, err := NewGame(LayoutInline, sizeIndex, 1, nil, max+1, Human); err != ErrInvalidDifficulty {
-		t.Errorf("NewGame(N=%d, over MaxDifficulty=%d) = %v, want ErrInvalidDifficulty", max+1, max, err)
+func TestNewGameRejectsInvalidPlayerCount(t *testing.T) {
+	if _, err := NewGame(LayoutInline, 0, 1, nil, nil); err != ErrInvalidPlayerCount {
+		t.Errorf("NewGame(0 players) = %v, want ErrInvalidPlayerCount", err)
 	}
-	if _, err := NewGame(LayoutInline, sizeIndex, 1, nil, -1, Human); err != ErrInvalidDifficulty {
-		t.Errorf("NewGame(N=-1) = %v, want ErrInvalidDifficulty", err)
+	tooMany := make([]PlayerSetup, MaxPlayers+1)
+	if _, err := NewGame(LayoutInline, 0, 1, nil, tooMany); err != ErrInvalidPlayerCount {
+		t.Errorf("NewGame(%d players) = %v, want ErrInvalidPlayerCount", len(tooMany), err)
 	}
-	if _, err := NewGame(LayoutInline, sizeIndex, 1, nil, max, Human); err != nil {
-		t.Errorf("NewGame(N=MaxDifficulty=%d) = %v, want success", max, err)
+	maxSetup := make([]PlayerSetup, MaxPlayers)
+	if _, err := NewGame(LayoutInline, 0, 1, nil, maxSetup); err != nil {
+		t.Errorf("NewGame(MaxPlayers players) = %v, want success", err)
 	}
 }
 
-func TestNewGamePanicsOnInvalidFirstMover(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("NewGame(first=Unmatched) did not panic")
+func TestNewGameRejectsNegativeMemory(t *testing.T) {
+	setup := []PlayerSetup{{IsBot: true, Memory: -1}}
+	if _, err := NewGame(LayoutInline, 0, 1, nil, setup); err != ErrInvalidMemory {
+		t.Errorf("NewGame(Memory=-1) = %v, want ErrInvalidMemory", err)
+	}
+}
+
+func TestNewGameForcesHumanMemoryToZero(t *testing.T) {
+	setup := []PlayerSetup{{IsBot: false, Memory: 99}}
+	g, err := NewGame(LayoutInline, 0, 1, nil, setup)
+	if err != nil {
+		t.Fatalf("NewGame: %v", err)
+	}
+	if g.Players[0].Memory != 0 {
+		t.Errorf("human Memory = %d, want 0 (caller-supplied value must be ignored)", g.Players[0].Memory)
+	}
+}
+
+func TestNewGameAssignsSequentialPlayerIDs(t *testing.T) {
+	setup := []PlayerSetup{{}, {IsBot: true, Memory: 3}, {}}
+	g, err := NewGame(LayoutInline, 3, 1, nil, setup)
+	if err != nil {
+		t.Fatalf("NewGame: %v", err)
+	}
+	for i, p := range g.Players {
+		if p.ID != PlayerID(i+1) {
+			t.Errorf("Players[%d].ID = %d, want %d", i, p.ID, i+1)
 		}
-	}()
-	_, _ = NewGame(LayoutInline, 0, 1, nil, 0, Unmatched)
+		if p.Pending != -1 {
+			t.Errorf("Players[%d].Pending = %d, want -1", i, p.Pending)
+		}
+	}
+	if !g.Players[1].IsBot || g.Players[1].Memory != 3 {
+		t.Errorf("Players[1] = %+v, want the bot setup", g.Players[1])
+	}
+}
+
+func TestNewSoloGame(t *testing.T) {
+	g, err := NewSoloGame(LayoutInline, 3, 1, nil)
+	if err != nil {
+		t.Fatalf("NewSoloGame: %v", err)
+	}
+	if !g.isSolo() {
+		t.Fatalf("NewSoloGame produced a non-solo shape: %+v", g.Players)
+	}
+	if g.Players[0].ID != 1 || g.Players[0].IsBot {
+		t.Errorf("solo player = %+v, want a lone human, ID 1", g.Players[0])
+	}
+}
+
+func TestNewSoloGameRejectsABoardThatDoesNotFit(t *testing.T) {
+	// 8x8 under LayoutInline does not fit the solo callback-data budget —
+	// see EncodedBitLen's doc comment and TestSoloBudgetMatrix.
+	if _, err := NewSoloGame(LayoutInline, 8, 1, nil); err != ErrSoloBoardTooLarge {
+		t.Errorf("NewSoloGame(LayoutInline, 8x8) = %v, want ErrSoloBoardTooLarge", err)
+	}
+	if _, err := NewSoloGame(LayoutSeedDerived, 8, 1, []byte("secret")); err != nil {
+		t.Errorf("NewSoloGame(LayoutSeedDerived, 8x8) = %v, want success", err)
+	}
+}
+
+func TestEncodeRejectsNonSoloState(t *testing.T) {
+	g, err := NewGame(LayoutInline, 0, 1, nil, []PlayerSetup{{}, {IsBot: true}})
+	if err != nil {
+		t.Fatalf("NewGame: %v", err)
+	}
+	if _, err := g.Encode(); err != ErrNotSoloGame {
+		t.Errorf("Encode(vs-bot state) = %v, want ErrNotSoloGame", err)
+	}
+
+	humans, err := NewGame(LayoutInline, 0, 1, nil, []PlayerSetup{{}, {}})
+	if err != nil {
+		t.Fatalf("NewGame: %v", err)
+	}
+	if _, err := humans.Encode(); err != ErrNotSoloGame {
+		t.Errorf("Encode(vs-humans state) = %v, want ErrNotSoloGame", err)
+	}
 }
 
 func TestDecodeRejectsTruncatedPayload(t *testing.T) {
 	full := mustEncodeSample(t)
-	// Progressively truncate the base64 string; every prefix should either
-	// decode to something shorter than intended (impossible here, since we
-	// truncate to well before the end) or fail with ErrInvalidSnapshot —
-	// never panic.
 	for cut := 1; cut < 4; cut++ {
 		s := full[:cut]
 		if _, err := Decode(s); err == nil {
@@ -78,7 +117,6 @@ func TestDecodeRejectsTruncatedPayload(t *testing.T) {
 }
 
 func TestDecodeRejectsUnknownSizeIndex(t *testing.T) {
-	// Hand-build a header with a size index one past the end of Sizes.
 	w := &bitWriter{}
 	w.writeBits(snapshotVersion, versionBits)
 	w.writeBits(uint64(LayoutInline), layoutModeBits)
@@ -91,37 +129,19 @@ func TestDecodeRejectsUnknownSizeIndex(t *testing.T) {
 
 func TestDecodeRejectsUnsupportedVersion(t *testing.T) {
 	w := &bitWriter{}
-	w.writeBits(snapshotVersion+1, versionBits) // only version 0 exists today
+	w.writeBits(snapshotVersion+1, versionBits)
 	s := base64.RawURLEncoding.EncodeToString(w.bytes())
 	if _, err := Decode(s); err == nil {
 		t.Error("Decode with an unsupported version = nil error, want an error")
 	}
 }
 
-// TestScoreCreditsTheRobot forces one mismatch (flipping the turn to Robot)
-// before playing the rest of the board out as guaranteed matches, which —
-// since playToCompletion never itself causes a mismatch — all get credited
-// to Robot. This exercises Score's Robot-counting branch, which the
-// matches-only play-outs elsewhere (Turn never leaves Human) never reach.
-func TestScoreCreditsTheRobot(t *testing.T) {
-	g := newTestGame(t, 2, 5, 0) // 3x4: 6 pairs, room for a real mismatch
-	a, b := findMismatch(g.Faces)
-	var err error
-	g, _, err = g.Reveal(a, nil)
-	if err != nil {
-		t.Fatalf("Reveal(a): %v", err)
+func TestDecodeRejectsGarbage(t *testing.T) {
+	if _, err := Decode("not-valid-base64-???"); err == nil {
+		t.Error("Decode(garbage) = nil error, want ErrInvalidSnapshot")
 	}
-	g, _, err = g.Reveal(b, nil) // mismatch: turn passes to Robot
-	if err != nil {
-		t.Fatalf("Reveal(b): %v", err)
-	}
-	if g.Turn != Robot {
-		t.Fatalf("Turn = %v after a mismatch, want Robot", g.Turn)
-	}
-	g = playToCompletion(t, g) // every remaining pair matches under Turn==Robot
-	human, robot := g.Score()
-	if human != 0 || robot != Sizes[2].Pairs() {
-		t.Fatalf("Score() = (%d, %d), want (0, %d)", human, robot, Sizes[2].Pairs())
+	if _, err := Decode(""); err == nil {
+		t.Error("Decode(\"\") = nil error, want an error (too short for even the header)")
 	}
 }
 
@@ -129,10 +149,10 @@ func TestScoreCreditsTheRobot(t *testing.T) {
 // (Rand left nil), which every other RandomMover test avoids by supplying
 // one explicitly for determinism.
 func TestRandomMover_DefaultRandWhenNil(t *testing.T) {
-	g := newTestGame(t, 3, 7, 0)
-	cell := RandomMover{}.Choose(g, g.Faces)
+	g := newTestGame(t, 3, 7, 1)
+	cell := RandomMover{}.Choose(g, g.Faces, 1)
 	legal := false
-	for _, m := range g.LegalMoves(g.Faces) {
+	for _, m := range g.LegalMoves(g.Faces, 1) {
 		if m == cell {
 			legal = true
 		}
@@ -144,6 +164,13 @@ func TestRandomMover_DefaultRandWhenNil(t *testing.T) {
 
 func mustEncodeSample(t *testing.T) string {
 	t.Helper()
-	g := newTestGame(t, 3, 1, 2)
-	return g.Encode()
+	g, err := NewSoloGame(LayoutInline, 3, 1, nil)
+	if err != nil {
+		t.Fatalf("NewSoloGame: %v", err)
+	}
+	s, err := g.Encode()
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	return s
 }

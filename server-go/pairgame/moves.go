@@ -1,114 +1,116 @@
 package pairgame
 
-// RevealOutcome describes what happened as a result of one Reveal call, for
-// a caller (the render/robot layer) to react to.
-type RevealOutcome struct {
-	// Matched is true if this reveal completed a pair (it was a second pick
-	// and it matched the pending first pick).
+// FlipOutcome describes what happened as a result of one Flip call, for a
+// caller (the render/robot/session layer) to react to.
+type FlipOutcome struct {
+	// Matched is true if this flip completed a pair (it was the acting
+	// player's second pick and it matched their pending first pick).
 	Matched bool
 	// MatchedBy is who was credited with the match; only meaningful when
-	// Matched is true.
-	MatchedBy Owner
-	// TurnEnded is true if this reveal was a second pick that did NOT
-	// match, so the turn passed to the other side.
-	TurnEnded bool
-	// GameOver is true if this reveal completed the last remaining pair.
+	// Matched is true. It always equals the `by` player passed to Flip.
+	MatchedBy PlayerID
+	// GameOver is true if this flip completed the last remaining pair.
 	GameOver bool
+	// Reveal is the public log entry this call appended to GameState.Log.
+	Reveal Reveal
 }
 
-// Reveal applies one cell reveal to the state, following classic
-// concentration/memory-match rules adapted to a click-through (no hidden
-// "flip back after a delay") flow:
+// Flip applies one player's cell flip to the state, in place (g is mutated
+// through the pointer — this is the one deliberate deviation from the
+// brief's suggested `func Flip(g *GameState, by PlayerID, cell int)
+// (FlipOutcome, error)` signature: `secret` is threaded through too, since
+// FacesWith needs it to resolve LayoutSeedDerived boards, exactly as the
+// old Reveal(cell, secret) did; see this package's PR description for why
+// dropping it silently would have been wrong rather than merely simpler).
 //
-//   - The first pick of a turn is recorded as Pending; nothing else changes.
-//   - The second pick is compared against Pending's face. A match credits
-//     the pair to the current Turn, clears Pending, and leaves Turn
-//     unchanged (the player who matched goes again) — the classic
-//     concentration rule that rewards a good memory. A mismatch clears
-//     Pending and flips Turn to the other side.
+// # The rules (founder-specified; apply identically to every mode and to a
+// # bot exactly as to a human — see robot.go)
 //
-// Every successfully revealed cell (first or second pick, matched or not)
-// is pushed into Memory — see the FIFO maintenance below — which is what
-// robot.go's memory-bounded Strategy reads.
-//
-// secret is forwarded to FacesWith to resolve the board layout; it is
-// ignored when g.Mode == LayoutInline.
-func (g GameState) Reveal(cell int, secret []byte) (GameState, RevealOutcome, error) {
+//   - There is NO turn order. Any seated player may flip at any moment; the
+//     faster player has the advantage, and that is intended.
+//   - Each player has their OWN independent pending pick (Player.Pending).
+//     Two different players may hold the same cell pending at the same
+//     time — that is explicitly allowed; only a player flipping their OWN
+//     already-pending cell again is rejected (ErrCellIsPending).
+//   - A cell belonging to an already-matched pair can never be flipped by
+//     anyone, first pick or second (ErrCellAlreadyMatched) — this is also
+//     what makes a stale pending pick self-correcting: once a pair is
+//     fully matched, BOTH of its cells become unflippable, so a player who
+//     was still holding one of them pending can never re-complete it; their
+//     very next flip (necessarily some other, still-legal cell) simply
+//     fails to match against their now-stale pending face, and Pending
+//     clears below exactly like any other mismatch. No separate staleness
+//     check is needed — see the second-pick branch below.
+//   - If the acting player has no pending pick: record `cell` as their
+//     pending. Nothing else resolves yet.
+//   - If the acting player has a pending pick: `cell` must differ from it
+//     (ErrCellIsPending otherwise). If the two cells share a pair id — and
+//     ErrCellAlreadyMatched above already guarantees that pair is still
+//     unmatched — the player claims the pair and scores +1. Otherwise
+//     nothing is claimed. Either way the player's pending clears.
+//   - ANY player may claim ANY pair, including one whose cards were
+//     revealed by an opponent (or by the acting player revealing both
+//     halves of a pair themselves, first pick then second, same as
+//     always). Sniping an opponent's exposed pair is a legitimate,
+//     intended move, not an edge case to guard against.
+//   - Every successful flip — first pick or second, matched or not — is
+//     appended to the public Log (see Reveal). This is the shared memory
+//     of the game: robot.go's Strategy reads it, and a render layer
+//     replays it as messages so human players can remember what was
+//     opened, since the board itself only shows matched cells and each
+//     player's own currently-pending cell (see the package doc).
+func Flip(g *GameState, secret []byte, by PlayerID, cell int) (FlipOutcome, error) {
 	if g.IsComplete() {
-		return g, RevealOutcome{}, ErrGameOver
+		return FlipOutcome{}, ErrGameOver
+	}
+	pi := g.playerIndex(by)
+	if pi < 0 {
+		return FlipOutcome{}, ErrUnknownPlayer
 	}
 	faces := g.FacesWith(secret)
 	if cell < 0 || cell >= len(faces) {
-		return g, RevealOutcome{}, ErrInvalidCell
+		return FlipOutcome{}, ErrInvalidCell
 	}
-	pairID := int(faces[cell])
-	if g.PairOwner[pairID] != Unmatched {
-		return g, RevealOutcome{}, ErrCellAlreadyMatched
+	pairID := faces[cell]
+	if g.PairOwner[pairID] != NoPlayer {
+		return FlipOutcome{}, ErrCellAlreadyMatched
 	}
-	if cell == g.Pending {
-		return g, RevealOutcome{}, ErrCellIsPending
-	}
-
-	next := g
-	next.PairOwner = append([]Owner(nil), g.PairOwner...)
-	next.Memory = rememberCell(g.Memory, g.N, cell)
-
-	if g.Pending < 0 {
-		// First pick this turn: nothing resolves yet.
-		next.Pending = cell
-		return next, RevealOutcome{}, nil
+	p := &g.Players[pi]
+	if cell == p.Pending {
+		return FlipOutcome{}, ErrCellIsPending
 	}
 
-	// Second pick: resolve against the pending first pick.
-	pendingFace := int(faces[g.Pending])
-	next.Pending = -1
+	if p.Pending < 0 {
+		// First pick: nothing resolves yet.
+		p.Pending = cell
+		rev := Reveal{By: by, Cell: cell, PairID: pairID, Matched: false}
+		g.Log = append(g.Log, rev)
+		return FlipOutcome{Reveal: rev}, nil
+	}
 
-	if pendingFace == pairID {
-		next.PairOwner[pairID] = g.Turn
-		next.Memory = forgetCell(next.Memory, cell)
-		next.Memory = forgetCell(next.Memory, g.Pending)
-		outcome := RevealOutcome{Matched: true, MatchedBy: g.Turn}
-		if next.IsComplete() {
+	// Second pick: resolve against this player's own pending first pick.
+	// pendingPairID may be stale (its pair claimed by someone else since —
+	// see the doc comment above); that self-corrects here without any
+	// extra check, because a stale pendingPairID can never equal pairID:
+	// if it did, cell and p.Pending would be the two cells of the SAME
+	// still-unmatched pair (ErrCellAlreadyMatched above already proved
+	// pairID's pair is unmatched), which is exactly the real-match case,
+	// not a stale one.
+	pendingPairID := faces[p.Pending]
+	matched := pendingPairID == pairID
+	p.Pending = -1
+
+	rev := Reveal{By: by, Cell: cell, PairID: pairID, Matched: matched}
+	g.Log = append(g.Log, rev)
+	outcome := FlipOutcome{Reveal: rev}
+	if matched {
+		g.PairOwner[pairID] = by
+		p.Score++
+		outcome.Matched = true
+		outcome.MatchedBy = by
+		if g.IsComplete() {
 			outcome.GameOver = true
 		}
-		return next, outcome, nil
 	}
-
-	next.Turn = g.Turn.Other()
-	return next, RevealOutcome{TurnEnded: true}, nil
-}
-
-// rememberCell pushes cell onto the memory FIFO (most-recent last),
-// de-duplicating an already-remembered cell by moving it to the back
-// instead of storing it twice, then trims from the front until the FIFO is
-// back within capacity n. n == 0 means "remembers nothing" — the FIFO stays
-// empty, which is what makes RandomMover's uniform-random placeholder
-// correct for that difficulty level.
-func rememberCell(memory []int, n, cell int) []int {
-	if n <= 0 {
-		return nil
-	}
-	next := make([]int, 0, len(memory)+1)
-	for _, m := range memory {
-		if m != cell {
-			next = append(next, m)
-		}
-	}
-	next = append(next, cell)
-	if len(next) > n {
-		next = next[len(next)-n:]
-	}
-	return next
-}
-
-// forgetCell removes cell from the memory FIFO, if present — used once a
-// pair resolves, since a matched cell's face is already public via
-// PairOwner and is no longer useful to remember.
-func forgetCell(memory []int, cell int) []int {
-	for i, m := range memory {
-		if m == cell {
-			return append(append([]int(nil), memory[:i]...), memory[i+1:]...)
-		}
-	}
-	return memory
+	return outcome, nil
 }
