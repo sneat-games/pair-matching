@@ -14,8 +14,8 @@ package pairgame
 // Telegram's 64-byte callback-data limit).
 //
 // Width*Height must be even (every card needs a partner) and Width*Height/2
-// must be <= MaxPairs, the largest pair count server-go/pairplay can address
-// with its 6-bit cell index.
+// must be <= MaxPairs — see MaxPairs's doc comment for what actually bounds
+// it.
 type Size struct {
 	Width  int
 	Height int
@@ -27,12 +27,17 @@ func (s Size) Cells() int { return s.Width * s.Height }
 // Pairs returns the number of matching pairs on the board.
 func (s Size) Pairs() int { return s.Cells() / 2 }
 
-// MaxPairs is the largest pair count the Snapshot wire encoding can address:
-// cell indexes (the pending-pick cell and each robot-memory entry) are
-// carried in 7 bits (0-126, 127 reserved as the "none" sentinel), so Cells()
-// must stay <= 126, i.e. Pairs() <= 63. Every preset in Sizes is comfortably
-// inside that ceiling — the real ceiling in practice is the 64-byte
-// callback-data budget (see snapshot_test.go), which binds much earlier.
+// MaxPairs is a documented ceiling on pair count, well below the two real
+// constraints: a face/pair id must fit Faces' uint8 element type (Pairs() <=
+// 256), and cell indexes (the pending-pick cell and each robot-memory entry)
+// now cost ceil(log2(cells))-ish bits rather than a fixed width — see
+// cellIndexBits and pendingFieldBits in snapshot.go — so there is no longer a
+// hard bit-width wall at 126/127 cells the way there was before the
+// callback-data compaction pass. The real ceiling in practice is the 64-byte
+// callback-data budget itself (see snapshot_test.go's TestSnapshotBudgetMatrix
+// and MaxDifficulty), which binds much earlier than either of those for
+// every preset in Sizes; MaxPairs just keeps that budget-driven ceiling from
+// being confused with a hard format limit.
 const MaxPairs = 63
 
 // Sizes is the ordered list of supported board presets. A preset's index in
