@@ -1,0 +1,7 @@
+# SpecScore Repo Config Schema: https://specscore.md/repo-config
+
+project:
+    title: Pair Matching
+    host: github.com
+    org: sneat-games
+    repo: pair-matching

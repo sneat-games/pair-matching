@@ -24,6 +24,8 @@ jobs:
     with:
       disable-version-bumping: true
       go_version: '1.27.0'
-      # No min_test_coverage_percent: this repo has no go.mod anywhere, so
-      # `go mod download all` fails before anything can build or be tested.
-      # See PR description for the finding.
+      # server-go/pairgame (the whole module as of this floor) measures
+      # 93.8% via `go test -cover`; set just below that so an incidental
+      # rounding difference in CI's toolchain doesn't false-fail, while still
+      # catching a real regression in the pairgame engine's coverage.
+      min_test_coverage_percent: '93'

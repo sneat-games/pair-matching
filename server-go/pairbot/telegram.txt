@@ -1,5 +1,0 @@
-Commands
-========
-star - main menu
-singleplayer - new game for myself
-tournaments - information & menu
