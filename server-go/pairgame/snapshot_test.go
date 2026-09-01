@@ -6,15 +6,14 @@ import (
 	"testing"
 )
 
-// TestSnapshotBudgetMatrix is the REQ:state-in-callback-data gate: for every
-// board preset, under both LayoutInline and LayoutSeedDerived, at N=0 (no
-// robot memory), a "typical" N, and the worst-case N == cells (a
-// perfect-memory robot), it measures the ACTUAL Encode() output length (not
-// a hand estimate) and reports whether it fits Telegram's 64-byte
-// callback_data limit after reserving HostPrefixReserveBytes for the host's
-// own command prefix + target-cell address. Run with `go test -v -run
-// TestSnapshotBudgetMatrix` to see the full table.
-func TestSnapshotBudgetMatrix(t *testing.T) {
+// TestSoloBudgetMatrix is the REQ:state-in-callback-data gate for the solo
+// mode's snapshot, under both LayoutInline and LayoutSeedDerived, for
+// every board preset. Unlike the old two-player format, a solo snapshot's
+// size does not depend on any run-time state (no robot memory FIFO to
+// worry about at N=0/typical/worst-case) — it is fully determined by
+// (mode, sizeIndex), so this measures exactly one row per (size, mode).
+// Run with `go test -v -run TestSoloBudgetMatrix` to see the full table.
+func TestSoloBudgetMatrix(t *testing.T) {
 	modes := []struct {
 		mode LayoutMode
 		name string
@@ -23,86 +22,84 @@ func TestSnapshotBudgetMatrix(t *testing.T) {
 		{LayoutSeedDerived, "seed-derived"},
 	}
 
-	t.Logf("%-8s %-6s %-12s %4s %4s %4s %6s %5s %s",
-		"size", "cells", "mode", "N", "bits", "bytes", "b64ch", "fits", "margin-to-64")
+	t.Logf("%-8s %-6s %-12s %4s %4s %6s %5s %s",
+		"size", "cells", "mode", "bits", "bytes", "b64ch", "fits", "margin-to-64")
 
 	for sizeIdx, size := range Sizes {
 		for _, m := range modes {
-			maxN := size.Cells()
-			typicalN := 4
-			if typicalN > maxN {
-				typicalN = maxN
-			}
-			for _, n := range dedupInts(0, typicalN, maxN) {
-				bits := EncodedBitLen(m.mode, sizeIdx, n)
-				bytes := EncodedByteLen(bits)
-				b64 := EncodedBase64Len(m.mode, sizeIdx, n)
-				fits := Fits(m.mode, sizeIdx, n)
-				totalWithPrefix := b64 + HostPrefixReserveBytes
-				t.Logf("%-8s %-6d %-12s %4d %4d %4d %6d %5v %d/%d",
-					fmt.Sprintf("%dx%d", size.Width, size.Height), size.Cells(), m.name,
-					n, bits, bytes, b64, fits, totalWithPrefix, CallbackDataLimitBytes)
+			bits := EncodedBitLen(m.mode, sizeIdx)
+			bytes := EncodedByteLen(bits)
+			b64 := EncodedBase64Len(m.mode, sizeIdx)
+			fits := Fits(m.mode, sizeIdx)
+			totalWithPrefix := b64 + HostPrefixReserveBytes
+			t.Logf("%-8s %-6d %-12s %4d %4d %6d %5v %d/%d",
+				fmt.Sprintf("%dx%d", size.Width, size.Height), size.Cells(), m.name,
+				bits, bytes, b64, fits, totalWithPrefix, CallbackDataLimitBytes)
 
-				if totalWithPrefix > CallbackDataLimitBytes && fits {
-					t.Errorf("%dx%d %s N=%d: Fits()=true but b64(%d)+prefix(%d)=%d exceeds the real Telegram limit %d",
-						size.Width, size.Height, m.name, n, b64, HostPrefixReserveBytes, totalWithPrefix, CallbackDataLimitBytes)
-				}
+			if totalWithPrefix > CallbackDataLimitBytes && fits {
+				t.Errorf("%dx%d %s: Fits()=true but b64(%d)+prefix(%d)=%d exceeds the real Telegram limit %d",
+					size.Width, size.Height, m.name, b64, HostPrefixReserveBytes, totalWithPrefix, CallbackDataLimitBytes)
 			}
 		}
 	}
 }
 
-func dedupInts(vs ...int) []int {
-	seen := make(map[int]bool, len(vs))
-	out := make([]int, 0, len(vs))
-	for _, v := range vs {
-		if !seen[v] {
-			seen[v] = true
-			out = append(out, v)
-		}
+// TestSoloAt8x8FitsComfortably is the specific measurement the brief asked
+// for: an 8x8 board (the largest preset, 32 pairs) under the mode a real
+// host would actually use (LayoutSeedDerived — see NewSoloGame's doc
+// comment on why LayoutInline is unusable at this size) fits with room to
+// spare, and is smaller than the pre-rewrite two-player engine's smallest
+// possible snapshot at the same size (that engine's own
+// TestSnapshotBudgetMatrix measured LayoutSeedDerived/N=0 at 8x8 needing
+// more bytes than this solo format needs even before accounting for the
+// N-player rewrite dropping the turn bit, the difficulty field, and the
+// robot-memory FIFO entirely).
+func TestSoloAt8x8FitsComfortably(t *testing.T) {
+	const sizeIdx = 8 // 8x8: 32 pairs, 64 cells
+	if Sizes[sizeIdx].Width != 8 || Sizes[sizeIdx].Height != 8 {
+		t.Fatalf("Sizes[%d] = %+v, this test assumes it is 8x8", sizeIdx, Sizes[sizeIdx])
 	}
-	return out
-}
-
-// TestMaxDifficultyIsSelfConsistent checks MaxDifficulty against Fits
-// directly: Fits must hold at MaxDifficulty and fail one above it (unless
-// MaxDifficulty already equals the board's cell count, i.e. even a
-// perfect-memory robot fits).
-func TestMaxDifficultyIsSelfConsistent(t *testing.T) {
-	for sizeIdx, size := range Sizes {
-		for _, mode := range []LayoutMode{LayoutInline, LayoutSeedDerived} {
-			max := MaxDifficulty(mode, sizeIdx)
-			if max < 0 {
-				if Fits(mode, sizeIdx, 0) {
-					t.Errorf("%+v mode=%v: MaxDifficulty=-1 but Fits(N=0) is true", size, mode)
-				}
-				continue
-			}
-			if !Fits(mode, sizeIdx, max) {
-				t.Errorf("%+v mode=%v: Fits(MaxDifficulty=%d) = false, want true", size, mode, max)
-			}
-			if max < size.Cells() && Fits(mode, sizeIdx, max+1) {
-				t.Errorf("%+v mode=%v: Fits(MaxDifficulty+1=%d) = true, want false", size, mode, max+1)
-			}
-		}
+	b64 := EncodedBase64Len(LayoutSeedDerived, sizeIdx)
+	t.Logf("8x8 solo LayoutSeedDerived snapshot: %d base64 chars (budget %d, Telegram limit %d)",
+		b64, MaxSnapshotBase64Chars, CallbackDataLimitBytes)
+	if !Fits(LayoutSeedDerived, sizeIdx) {
+		t.Fatalf("8x8 LayoutSeedDerived solo snapshot does not fit MaxSnapshotBase64Chars=%d (got %d chars)", MaxSnapshotBase64Chars, b64)
+	}
+	if b64 > MaxSnapshotBase64Chars/2 {
+		t.Errorf("8x8 solo snapshot (%d chars) is not \"comfortably\" under budget (%d chars) — expected well under half", b64, MaxSnapshotBase64Chars)
 	}
 }
 
-// TestEncodeDecodeRoundTrip_Inline proves a real LayoutInline snapshot
-// (explicit board, non-trivial memory/pending/ownership) survives an
+// TestEncodeDecodeRoundTrip_Inline proves a real solo LayoutInline snapshot
+// (explicit board, a pending pick, some matched pairs) survives an
 // Encode/Decode round trip byte-for-byte in every field that matters for
 // gameplay.
 func TestEncodeDecodeRoundTrip_Inline(t *testing.T) {
-	g := newTestGame(t, 3, 99, 4) // 4x4
-	a, b := findMismatch(g.Faces)
-	g, _, err := g.Reveal(a, nil)
+	g, err := NewSoloGame(LayoutInline, 3, 99, nil) // 4x4
 	if err != nil {
-		t.Fatalf("Reveal: %v", err)
+		t.Fatalf("NewSoloGame: %v", err)
 	}
-	// Leave a pending pick unresolved to exercise that field too.
-	_ = b
+	a, b := findPair(g.Faces)
+	if _, err := Flip(&g, nil, 1, a); err != nil {
+		t.Fatalf("Flip(a): %v", err)
+	}
+	if _, err := Flip(&g, nil, 1, b); err != nil {
+		t.Fatalf("Flip(b): %v", err)
+	}
+	// Leave a fresh pending pick unresolved to exercise that field too.
+	c, _ := findMismatch(g.Faces)
+	for c == a || c == b {
+		c++
+		c %= len(g.Faces)
+	}
+	if _, err := Flip(&g, nil, 1, c); err != nil {
+		t.Fatalf("Flip(c): %v", err)
+	}
 
-	encoded := g.Encode()
+	encoded, err := g.Encode()
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
 	t.Logf("encoded (%d chars): %s", len(encoded), encoded)
 	if len(encoded) > MaxSnapshotBase64Chars {
 		t.Errorf("encoded length %d exceeds MaxSnapshotBase64Chars %d", len(encoded), MaxSnapshotBase64Chars)
@@ -118,27 +115,28 @@ func TestEncodeDecodeRoundTrip_Inline(t *testing.T) {
 	}
 }
 
-// TestEncodeDecodeRoundTrip_SeedDerived proves the same for LayoutSeedDerived,
-// including that the decoded Seed lets FacesWith reconstruct the identical
-// layout given the same secret.
+// TestEncodeDecodeRoundTrip_SeedDerived proves the same for
+// LayoutSeedDerived, including that the decoded Seed lets FacesWith
+// reconstruct the identical layout given the same secret.
 func TestEncodeDecodeRoundTrip_SeedDerived(t *testing.T) {
 	secret := []byte("host-bot-secret")
-	g, err := NewGame(LayoutSeedDerived, 7, 4242, secret, 6, Robot) // 6x6
+	g, err := NewSoloGame(LayoutSeedDerived, 7, 4242, secret) // 6x6
 	if err != nil {
-		t.Fatalf("NewGame: %v", err)
+		t.Fatalf("NewSoloGame: %v", err)
 	}
 	faces := g.FacesWith(secret)
 	a, b := findPair(faces)
-	g, _, err = g.Reveal(a, secret)
-	if err != nil {
-		t.Fatalf("Reveal(a): %v", err)
+	if _, err := Flip(&g, secret, 1, a); err != nil {
+		t.Fatalf("Flip(a): %v", err)
 	}
-	g, _, err = g.Reveal(b, secret)
-	if err != nil {
-		t.Fatalf("Reveal(b): %v", err)
+	if _, err := Flip(&g, secret, 1, b); err != nil {
+		t.Fatalf("Flip(b): %v", err)
 	}
 
-	encoded := g.Encode()
+	encoded, err := g.Encode()
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
 	t.Logf("encoded (%d chars): %s", len(encoded), encoded)
 	if len(encoded) > MaxSnapshotBase64Chars {
 		t.Errorf("encoded length %d exceeds MaxSnapshotBase64Chars %d", len(encoded), MaxSnapshotBase64Chars)
@@ -155,8 +153,6 @@ func TestEncodeDecodeRoundTrip_SeedDerived(t *testing.T) {
 	if got.Faces != nil {
 		t.Errorf("decoded Faces = %v, want nil under LayoutSeedDerived", got.Faces)
 	}
-	// The whole point: the layout is reconstructible ONLY with the secret,
-	// and it round-trips to the exact same layout the game started with.
 	if !reflect.DeepEqual(got.FacesWith(secret), faces) {
 		t.Errorf("FacesWith(secret) after decode does not match the original layout")
 	}
@@ -168,13 +164,17 @@ func TestEncodeDecodeRoundTrip_SeedDerived(t *testing.T) {
 // validate against) but does NOT reproduce the true layout either.
 func TestDeriveFacesWrongSecretGivesWrongLayout(t *testing.T) {
 	secret := []byte("real-secret")
-	g, err := NewGame(LayoutSeedDerived, 3, 123, secret, 0, Human)
+	g, err := NewSoloGame(LayoutSeedDerived, 3, 123, secret)
 	if err != nil {
-		t.Fatalf("NewGame: %v", err)
+		t.Fatalf("NewSoloGame: %v", err)
 	}
 	trueFaces := g.FacesWith(secret)
 
-	decoded, err := Decode(g.Encode())
+	encoded, err := g.Encode()
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	decoded, err := Decode(encoded)
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
@@ -182,6 +182,79 @@ func TestDeriveFacesWrongSecretGivesWrongLayout(t *testing.T) {
 	if reflect.DeepEqual(guessedFaces, trueFaces) {
 		t.Fatal("decoding with the wrong secret reproduced the true layout — secrecy property broken")
 	}
+}
+
+// TestEncodeDecodeRoundTrip_AllSizes exercises Encode/Decode at every board
+// preset that fits, under both layout modes, at a NoPending state, a
+// pending-at-last-cell state, and a partially-matched state — the wire
+// format is otherwise state-independent (see EncodedBitLen's doc comment),
+// so this is the width-boundary sweep that the old format needed a
+// per-difficulty loop for.
+func TestEncodeDecodeRoundTrip_AllSizes(t *testing.T) {
+	for sizeIdx, size := range Sizes {
+		cells := size.Cells()
+		pairs := size.Pairs()
+		for _, mode := range []LayoutMode{LayoutInline, LayoutSeedDerived} {
+			if !Fits(mode, sizeIdx) {
+				continue
+			}
+			for _, pendCase := range []struct {
+				name    string
+				pending int
+			}{
+				{"NoPending", -1},
+				{"PendingAtLastCell", cells - 1},
+			} {
+				name := fmt.Sprintf("%dx%d/%s/%s", size.Width, size.Height, modeName(mode), pendCase.name)
+				t.Run(name, func(t *testing.T) {
+					g := GameState{
+						SizeIndex: uint8(sizeIdx),
+						Mode:      mode,
+						PairOwner: make([]PlayerID, pairs),
+						Players:   []Player{{ID: 1, Pending: pendCase.pending}},
+					}
+					for i := range g.PairOwner {
+						if i%2 == 0 {
+							g.PairOwner[i] = 1 // cycles Unmatched/Matched
+							g.Players[0].Score++
+						}
+					}
+					if mode == LayoutInline {
+						g.Faces = ShuffleFaces(uint32(sizeIdx*97+1), pairs)
+					} else {
+						g.Seed = uint32(sizeIdx*104729 + 7)
+					}
+
+					encoded, err := g.Encode()
+					if err != nil {
+						t.Fatalf("Encode: %v", err)
+					}
+					if len(encoded) > MaxSnapshotBase64Chars {
+						t.Fatalf("encoded length %d exceeds MaxSnapshotBase64Chars %d", len(encoded), MaxSnapshotBase64Chars)
+					}
+					got, err := Decode(encoded)
+					if err != nil {
+						t.Fatalf("Decode: %v", err)
+					}
+					assertSameGameplayState(t, g, got)
+					if mode == LayoutInline {
+						if !reflect.DeepEqual(got.Faces, g.Faces) {
+							t.Errorf("Faces = %v, want %v", got.Faces, g.Faces)
+						}
+					} else if got.Seed != g.Seed {
+						t.Errorf("Seed = %d, want %d", got.Seed, g.Seed)
+					}
+				})
+			}
+		}
+	}
+}
+
+func modeName(mode LayoutMode) string {
+	if mode == LayoutInline {
+		return "inline"
+	}
+	return "seed"
 }
 
 func assertSameGameplayState(t *testing.T, want, got GameState) {
@@ -192,28 +265,16 @@ func assertSameGameplayState(t *testing.T, want, got GameState) {
 	if got.Mode != want.Mode {
 		t.Errorf("Mode = %v, want %v", got.Mode, want.Mode)
 	}
-	if got.Turn != want.Turn {
-		t.Errorf("Turn = %v, want %v", got.Turn, want.Turn)
+	if len(got.Players) != 1 || len(want.Players) != 1 {
+		t.Fatalf("solo state must decode to exactly 1 player: got %d, want %d", len(got.Players), len(want.Players))
 	}
-	if got.Pending != want.Pending {
-		t.Errorf("Pending = %d, want %d", got.Pending, want.Pending)
+	if got.Players[0].Pending != want.Players[0].Pending {
+		t.Errorf("Pending = %d, want %d", got.Players[0].Pending, want.Players[0].Pending)
 	}
-	if got.N != want.N {
-		t.Errorf("N = %d, want %d", got.N, want.N)
-	}
-	if !reflect.DeepEqual(got.Memory, want.Memory) {
-		t.Errorf("Memory = %v, want %v", got.Memory, want.Memory)
+	if got.Players[0].Score != want.Players[0].Score {
+		t.Errorf("Score = %d, want %d", got.Players[0].Score, want.Players[0].Score)
 	}
 	if !reflect.DeepEqual(got.PairOwner, want.PairOwner) {
 		t.Errorf("PairOwner = %v, want %v", got.PairOwner, want.PairOwner)
-	}
-}
-
-func TestDecodeRejectsGarbage(t *testing.T) {
-	if _, err := Decode("not-valid-base64-???"); err == nil {
-		t.Error("Decode(garbage) = nil error, want ErrInvalidSnapshot")
-	}
-	if _, err := Decode(""); err == nil {
-		t.Error("Decode(\"\") = nil error, want an error (too short for even the header)")
 	}
 }

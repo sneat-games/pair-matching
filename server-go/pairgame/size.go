@@ -1,9 +1,23 @@
 // Package pairgame is the Pair-Matching (memory/concentration) rules engine:
-// board presets, the deterministic card layout, and pure win/match mechanics.
-// It has no bot, host, or persistence dependencies — see server-go/pairplay
-// for the host-agnostic play layer that turns this into a Telegram
-// callback-data game (github.com/sneat-games/reversi's revgame/revplay split
-// is the precedent this package follows).
+// board presets, the deterministic card layout, and the N-player win/match
+// mechanics (Flip; see its doc comment for the full rules) shared
+// identically by all three founder-specified modes — Solo (one human, no
+// bot), vs-Bot (one human + one bot), and vs-Humans (2..8 humans, no bot).
+// There is no turn order and no per-game persistence dependency in this
+// package itself: it has no bot, host, or storage code of its own.
+//
+//   - Solo is the one mode small enough, and single-actor enough, to
+//     round-trip through a Telegram callback_data button — see snapshot.go's
+//     Encode/Decode and server-go/pairplay for the host-agnostic play layer
+//     that would turn that into an actual Telegram game
+//     (github.com/sneat-games/reversi's revgame/revplay split is the
+//     precedent both this package and pairplay follow).
+//   - vs-Bot and vs-Humans need server-side storage instead — a bot that
+//     moves on its own timer, and moves arriving from more than one human
+//     actor, cannot be reconstructed from a single tapped button's payload
+//     the way solo's single-human-driven state can. See
+//     server-go/pairgame/dal4pairgame for the persistence layer and its
+//     sibling session-composing package for how the two are wired together.
 package pairgame
 
 // Size is a supported board preset: a fixed Width x Height combination.
