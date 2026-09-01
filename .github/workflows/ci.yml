@@ -25,7 +25,9 @@ jobs:
       disable-version-bumping: true
       go_version: '1.27.0'
       # server-go/pairgame (the whole module as of this floor) measures
-      # 93.8% via `go test -cover`; set just below that so an incidental
-      # rounding difference in CI's toolchain doesn't false-fail, while still
-      # catching a real regression in the pairgame engine's coverage.
-      min_test_coverage_percent: 93
+      # 94.6% via `go test -cover` after the callback-data compaction pass's
+      # round-trip and memory-pruning tests (up from 93.8%); set just below
+      # that so an incidental rounding difference in CI's toolchain doesn't
+      # false-fail, while still catching a real regression in the pairgame
+      # engine's coverage.
+      min_test_coverage_percent: 94
