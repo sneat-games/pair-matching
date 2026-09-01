@@ -39,4 +39,11 @@ var (
 	// ErrNoBotInGame is returned by RobotMove against anything but a
 	// vs-Bot game.
 	ErrNoBotInGame = errors.New("pairsession: this game has no bot seat")
+
+	// ErrPlayerIsBot is returned by SetPlayerChatID/SetPlayerMessage when
+	// userID resolves to the game's bot seat — a bot seat never has a
+	// Telegram chat or an anchored message of its own (see
+	// dal4pairgame.PlayerDbo.ChatID/MessageID), so recording one for it is
+	// rejected rather than silently accepted.
+	ErrPlayerIsBot = errors.New("pairsession: this player is a bot; it has no chat or message of its own")
 )

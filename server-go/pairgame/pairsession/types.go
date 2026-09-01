@@ -44,6 +44,15 @@ type PlayerView struct {
 	IsBot   bool
 	Score   int
 	Pending int // -1 if this seat currently has no pending pick
+	// ChatID is this player's private Telegram chat ID with the bot, if
+	// known (0 = unknown) — see dal4pairgame.PlayerDbo.ChatID and
+	// SetPlayerChatID. Always 0 for a bot seat.
+	ChatID int64
+	// MessageID is this player's own anchored private board message, if
+	// any (private-invite vs-Humans only; 0 = not yet anchored) — see
+	// dal4pairgame.PlayerDbo.MessageID and SetPlayerMessage. Always 0 for a
+	// bot seat.
+	MessageID int
 }
 
 // View is a read-only rendering of one stored game, returned by GetView.
@@ -62,4 +71,11 @@ type View struct {
 	// Winners are the PlayerIDs with the highest score — see
 	// pairgame.GameState.Winners. More than one entry is a tie.
 	Winners []pairgame.PlayerID
+	// ChatID/MessageID anchor the ONE shared group status message, if this
+	// game was started in a group chat (ChatID == 0 for a private-invite
+	// game — there, each player's own anchor lives on their PlayerView
+	// instead; see dal4pairgame.GameDbo.ChatID/MessageID, SetGroupMessage,
+	// and SetPlayerMessage).
+	ChatID    int64
+	MessageID int
 }
