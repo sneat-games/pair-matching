@@ -64,6 +64,35 @@ func TestMemoryStrategy_TakesAGuaranteedSecondPick(t *testing.T) {
 	}
 }
 
+// TestMemoryStrategy_SnipesALiveHumanPendingInOneMove is the direct
+// evidence for the founder's any-player-may-match ruling reaching the bot:
+// a human has a LIVE pending pick the bot never touched itself (the bot
+// has no pending of its own at all) — MemoryStrategy must still recognise
+// that flipping the remembered partner cell completes the pair outright,
+// in a single Choose call, exactly as a human sniping another human would.
+func TestMemoryStrategy_SnipesALiveHumanPendingInOneMove(t *testing.T) {
+	g := newTestGame(t, 3, 7, 2) // 4x4, player 1 human, player 2 bot
+	a, b := findPair(g.Faces)
+
+	// The bot separately remembers cell b's face from some earlier reveal
+	// (simulated directly, mirroring TestMemoryStrategy_OpensARememberedPairOnFirstPick)
+	// — b itself is not anyone's current pending.
+	g.Log = []Reveal{{By: 1, Cell: b, PairID: g.Faces[b]}}
+
+	// Player 1 NOW opens 'a' and leaves it exposed as a LIVE pending pick —
+	// the bot never flipped 'a' itself and has no pending of its own.
+	if _, err := Flip(&g, nil, 1, a); err != nil {
+		t.Fatalf("player1 opens a: %v", err)
+	}
+	g.Players[1].Memory = 8 // comfortably covers the board
+
+	strat := MemoryStrategy{}
+	got := strat.Choose(g, g.Faces, 2)
+	if got != b {
+		t.Errorf("MemoryStrategy.Choose = %d, want the bot to snipe player1's exposed pair via remembered partner %d", got, b)
+	}
+}
+
 // TestMemoryStrategy_OpensARememberedPairOnFirstPick checks the first-pick
 // path: if two cells in the bot's memory window already share a still-
 // unmatched face, MemoryStrategy should open one of them rather than

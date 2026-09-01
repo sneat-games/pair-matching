@@ -59,8 +59,10 @@ type Reveal struct {
 	// public knowledge, which is what makes sniping an opponent's exposed
 	// pair possible).
 	PairID uint8
-	// Matched is true if this flip completed a pair (it was the acting
-	// player's own second pick and it matched their pending first pick).
+	// Matched is true if this flip completed a pair — it matched some
+	// seated player's pending pick on this pair's other cell (that player
+	// need not be By: any player may snipe another's exposed pending pick,
+	// and the flipper is always the one credited — see Flip's doc comment).
 	Matched bool
 }
 

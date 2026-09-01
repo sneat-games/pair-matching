@@ -25,8 +25,12 @@ const MaxPlayers = 8
 
 // Player is one participant in a game: a human or a bot, each tracking
 // their own independent pending pick and score. Under the N-player rules
-// there is no shared/global pending cell and no turn order — every player's
-// Pending is advanced only by their own Flip calls (see Flip).
+// there is no shared/global pending cell and no turn order — every
+// player's Pending is a slot only THEY can SET (via their own Flip calls),
+// but any player's Flip can CLEAR another player's Pending as a side
+// effect of matching it (sniping — see Flip's doc comment); Pending is
+// therefore not exclusively "advanced only by their own Flip calls" the
+// way it was before the founder's any-player-may-match ruling.
 type Player struct {
 	// ID is this player's seat number, 1..N within the owning GameState.
 	ID PlayerID
@@ -34,8 +38,13 @@ type Player struct {
 	// exactly these same rules — see robot.go's Strategy, which the session
 	// layer drives one Flip call at a time.
 	IsBot bool
-	// Pending is this player's own currently-open first pick this "round"
-	// (their own, not shared — see the package doc), or -1 if none.
+	// Pending is the cell this player most recently flipped that has not
+	// since resolved: either matched (by ANY player flipping its partner
+	// cell — see Flip) or replaced by this same player flipping something
+	// else. It is -1 when none. There is no "first pick vs second pick"
+	// state any more — every flip either matches an existing pending pick
+	// (anyone's, this player's own included) or becomes this player's new
+	// Pending, unconditionally replacing whatever they had before.
 	Pending int
 	// Score is how many pairs this player has personally claimed.
 	Score int

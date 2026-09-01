@@ -5,12 +5,14 @@ import "math/rand"
 // Strategy picks a bot's next cell to flip, given the current state and the
 // resolved board layout. A bot is a player like any other under exactly the
 // same rules as a human (see Flip's doc comment) — Strategy has no special
-// access: it may only use `by`'s own Pending (already reflecting the bot's
-// own earlier pick this "round", if any) and GameState.Log, the same public
-// information a real player watching the chat would have. The session layer
-// drives a bot ONE Flip call per invocation (see the package's PR
-// description on why: completing a pair deliberately takes a bot two ticks,
-// which makes it visible and beatable rather than an instant, opaque snipe).
+// access: it may only use `by`'s own Pending (its currently-open flip, if
+// any — see Player.Pending) and GameState.Log, the same public information
+// a real player watching the chat would have. The session layer drives a
+// bot ONE Flip call per invocation. Note that under the founder's any-
+// player-may-match ruling, a single Flip call CAN complete a pair outright
+// (sniping an exposed card, or completing the bot's own still-open pick) —
+// "two ticks to complete a pair" is no longer guaranteed the way it was
+// before that ruling; see MemoryStrategy's doc comment.
 type Strategy interface {
 	Choose(g GameState, faces []uint8, by PlayerID) int
 }
@@ -69,27 +71,40 @@ func recentLogEntries(g GameState, memory int) []Reveal {
 }
 
 // MemoryStrategy plays using the tail of the public reveal Log — the
-// difficulty dial is `by`'s own Player.Memory, how many of the most
-// recent public Log entries (from ANY player, human or bot — every flip is
-// public per Flip's doc comment) it may consult:
+// difficulty dial is `by`'s own Player.Memory, how many of the most recent
+// public Log entries (from ANY player, human or bot — every flip is public
+// per Flip's doc comment) it may consult. Under the founder's any-player-
+// may-match ruling (see Flip's doc comment), completing a pair is a
+// ONE-flip action the instant either half is exposed and remembered — there
+// is no more separate "first pick" vs "second pick" branch, because Flip
+// itself no longer has one:
 //
-//   - Second pick (Pending is set): if the remembered window holds another
-//     still-unmatched cell whose face matches the pending pick's face,
-//     take it — a guaranteed match. Otherwise fall back to Fallback.
-//   - First pick (no Pending): if the remembered window holds two DISTINCT
-//     cells that share a still-unmatched face — a pair the bot has seen
-//     both halves of, whether from its own earlier flips or from watching
-//     other players — open one of them; its second pick will then find the
-//     guaranteed match above. Otherwise fall back to Fallback.
+//   - Snipe/complete: for every still-unmatched cell in the remembered
+//     window (most-recently-seen first), if SOME seated player — the bot
+//     itself included, which subsumes what used to be the "second pick"
+//     case — currently has a pending pick on that cell's PAIR PARTNER, flip
+//     it: an immediate, guaranteed match, credited to the bot exactly as
+//     Flip credits any flipper. This is deliberately checked before
+//     anything else, since a live, unmatched, remembered exposure is by far
+//     the strongest move available — leaving it for a later call risks
+//     losing it to any other player first.
+//   - Otherwise, first-pick pairing: if the remembered window holds two
+//     DISTINCT cells that share a still-unmatched face — a pair the bot has
+//     seen both halves of at some point, neither currently anyone's live
+//     pending (the snipe check above would already have caught that case) —
+//     open one of them, betting on being first back to complete it next
+//     time. A real bet under these rules: any other player who also
+//     remembers (or gets lucky on) the partner cell can snipe it first.
+//   - Otherwise, fall back to Fallback.
 //
 // A larger Memory keeps more of the public log in view, so this strategy
-// finds guaranteed matches more often. At Memory == Sizes[SizeIndex].Cells()
-// (or larger — recentLogEntries never returns more than exists) it can see
-// the entire game's history and plays a perfect, effectively unbeatable
-// game; at Memory == 0, the window is always empty and it degrades to pure
-// Fallback. Every value in between is a real difficulty step, not just
-// cosmetic — which is the point of exposing Memory as the difficulty
-// control.
+// both spots a live snipe more often and sets up more future pairings. At
+// Memory == Sizes[SizeIndex].Cells() (or larger — recentLogEntries never
+// returns more than exists) it can see the entire game's history and plays
+// a perfect, effectively unbeatable game; at Memory == 0, the window is
+// always empty and it degrades to pure Fallback. Every value in between is
+// a real difficulty step, not just cosmetic — which is the point of
+// exposing Memory as the difficulty control.
 type MemoryStrategy struct {
 	// Fallback is used whenever the log window does not resolve a move
 	// (defaults to RandomMover{} when nil).
@@ -108,20 +123,22 @@ func (m MemoryStrategy) Choose(g GameState, faces []uint8, by PlayerID) int {
 	p, ok := g.Player(by)
 	window := recentLogEntries(g, p.Memory)
 
-	if ok && p.Pending >= 0 {
-		pendingFace := faces[p.Pending]
-		for i := len(window) - 1; i >= 0; i-- {
-			e := window[i]
-			if e.Cell == p.Pending || g.PairOwner[e.PairID] != NoPlayer {
-				continue
-			}
-			if faces[e.Cell] == pendingFace {
-				return e.Cell
-			}
+	// Snipe/complete: most-recently-remembered cell first.
+	for i := len(window) - 1; i >= 0; i-- {
+		e := window[i]
+		if g.PairOwner[e.PairID] != NoPlayer {
+			continue // already matched -- see recentLogEntries' doc comment
 		}
-		return m.fallback().Choose(g, faces, by)
+		if ok && e.Cell == p.Pending {
+			continue // flipping the bot's own current pending is illegal (ErrCellIsPending)
+		}
+		if hasOtherPendingOnSamePair(g, faces, e.PairID, e.Cell) {
+			return e.Cell
+		}
 	}
 
+	// First-pick pairing: two distinct remembered cells sharing a still-
+	// unmatched face, oldest sighting first.
 	seenAt := make(map[uint8]int, len(window))
 	for _, e := range window {
 		if g.PairOwner[e.PairID] != NoPlayer {
@@ -136,4 +153,18 @@ func (m MemoryStrategy) Choose(g GameState, faces []uint8, by PlayerID) int {
 		seenAt[e.PairID] = e.Cell
 	}
 	return m.fallback().Choose(g, faces, by)
+}
+
+// hasOtherPendingOnSamePair reports whether some seated player (any,
+// including `by` itself — see Flip's doc comment on why self-completion and
+// sniping are now the same check) currently has a pending pick on a cell
+// other than `exclude` that shares pairID — i.e. whether flipping `exclude`
+// right now would complete a guaranteed match under Flip's rules.
+func hasOtherPendingOnSamePair(g GameState, faces []uint8, pairID uint8, exclude int) bool {
+	for _, pl := range g.Players {
+		if pl.Pending >= 0 && pl.Pending != exclude && faces[pl.Pending] == pairID {
+			return true
+		}
+	}
+	return false
 }

@@ -119,7 +119,12 @@ func TestFlip_MatchCreditsTheActingPlayerAndClearsPending(t *testing.T) {
 	}
 }
 
-func TestFlip_MismatchClearsPendingWithoutScoring(t *testing.T) {
+// TestFlip_MismatchReplacesPendingOutright is the founder-confirmed 2018
+// behaviour (see conformance_2018_open_test.go): a flip that matches
+// nothing does NOT clear the flipper's pending to "none" — it REPLACES it
+// outright with the just-flipped cell, so the flipper can keep opening
+// fresh cells indefinitely with no "must wait a turn" reset in between.
+func TestFlip_MismatchReplacesPendingOutright(t *testing.T) {
 	g := newTestGame(t, 3, 1, 2)
 	a, b := findMismatch(g.Faces)
 
@@ -134,8 +139,8 @@ func TestFlip_MismatchClearsPendingWithoutScoring(t *testing.T) {
 		t.Fatalf("outcome = %+v, want not Matched", outcome)
 	}
 	p, _ := g.Player(1)
-	if p.Pending != -1 {
-		t.Errorf("Pending = %d after a mismatch, want -1", p.Pending)
+	if p.Pending != b {
+		t.Errorf("Pending = %d after a mismatch, want %d (replaced, not cleared)", p.Pending, b)
 	}
 	if p.Score != 0 {
 		t.Errorf("Score = %d after a mismatch, want 0", p.Score)
@@ -147,16 +152,19 @@ func TestFlip_MismatchClearsPendingWithoutScoring(t *testing.T) {
 // ever having "ended their turn" — there is no such concept any more.
 func TestFlip_NoTurnOrder(t *testing.T) {
 	g := newTestGame(t, 3, 1, 2)
-	a, _ := findMismatch(g.Faces)
+	a, partner := findPair(g.Faces)
 
 	if _, err := Flip(&g, nil, 1, a); err != nil {
 		t.Fatalf("player 1 Flip: %v", err)
 	}
 	// Player 2 acts next, with player 1's pick still pending — this must be
 	// legal under the new rules (it was structurally impossible before).
+	// Deliberately NOT a's own pair partner (that would snipe player 1's
+	// pending instead of leaving it untouched, which is a different test —
+	// see TestFlip_AnyPlayerMayClaimAnOpponentsExposedPair).
 	other := -1
 	for cell := range g.Faces {
-		if cell != a {
+		if cell != a && cell != partner {
 			other = cell
 			break
 		}
@@ -188,18 +196,10 @@ func TestFlip_TwoPlayersMayShareAPendingCell(t *testing.T) {
 }
 
 // TestFlip_AnyPlayerMayClaimAnOpponentsExposedPair is the founder's
-// "sniping" rule: player 1 opens both halves of a pair as two separate
-// first picks (never matching themselves because each Flip is player 1's
-// own second pick only against player 1's own pending — so opening both
-// halves without an intervening resolution requires two different actors).
-// Concretely: player 1 opens cell a (first pick). Player 2 opens cell b,
-// the SAME pair's other cell, as player 2's OWN first pick — no match yet,
-// since match resolution only compares an acting player's own two picks.
-// Player 2 then opens some third cell as their second pick (a deliberate
-// mismatch, so player 2 does NOT claim the pair themselves) — proving the
-// pair sits fully revealed (both halves publicly logged) but still
-// unmatched. Player 1 (who still holds cell a pending) now opens cell b as
-// their own second pick and claims it — the snipe.
+// (twice-confirmed) "sniping" rule: player 1 flips cell a, leaving it
+// exposed as their pending pick. Player 2 flips a's twin, cell b, in a
+// SINGLE flip — no need to first flip b themselves as their own pending —
+// and claims the pair outright. Exposing a card is genuinely risky.
 func TestFlip_AnyPlayerMayClaimAnOpponentsExposedPair(t *testing.T) {
 	g := newTestGame(t, 3, 1, 2) // 4x4: 16 cells, plenty of room
 	a, b := findPair(g.Faces)
@@ -207,75 +207,98 @@ func TestFlip_AnyPlayerMayClaimAnOpponentsExposedPair(t *testing.T) {
 	if _, err := Flip(&g, nil, 1, a); err != nil {
 		t.Fatalf("player1 opens a: %v", err)
 	}
-	if _, err := Flip(&g, nil, 2, b); err != nil {
-		t.Fatalf("player2 opens b (same pair, their own first pick): %v", err)
-	}
 	if owner := g.PairOwner[g.Faces[a]]; owner != NoPlayer {
-		t.Fatalf("pair should still be unmatched after two different players each hold one half pending, got owner=%v", owner)
+		t.Fatalf("pair should still be unmatched after only one half is pending, got owner=%v", owner)
 	}
 
-	// Player 1 claims it by flipping cell b as their own second pick.
-	outcome, err := Flip(&g, nil, 1, b)
+	// Player 2 snipes it in ONE flip of the twin cell b.
+	outcome, err := Flip(&g, nil, 2, b)
 	if err != nil {
-		t.Fatalf("player1 snipes b: %v", err)
+		t.Fatalf("player2 snipes b: %v", err)
 	}
-	if !outcome.Matched || outcome.MatchedBy != 1 {
-		t.Fatalf("outcome = %+v, want player 1 to claim the pair", outcome)
+	if !outcome.Matched || outcome.MatchedBy != 2 {
+		t.Fatalf("outcome = %+v, want player 2 to claim the pair in one flip", outcome)
 	}
-	p2, _ := g.Player(2)
-	if p2.Score != 0 {
-		t.Errorf("player 2 Score = %d, want 0 (they never completed their own pick)", p2.Score)
+	if owner := g.PairOwner[g.Faces[a]]; owner != 2 {
+		t.Fatalf("PairOwner = %v, want player 2", owner)
+	}
+	p1, _ := g.Player(1)
+	if p1.Pending != -1 {
+		t.Errorf("player 1's Pending = %d after being sniped, want -1 (cleared as part of the match)", p1.Pending)
+	}
+	if p1.Score != 0 {
+		t.Errorf("player 1 Score = %d, want 0 (their exposed card was sniped, not completed by them)", p1.Score)
 	}
 }
 
-// TestFlip_StalePendingSelfCorrectsOnNextFlip is the founder's "pending can
-// go stale" rule: player 2 holds cell b pending (the partner of a pair
-// player 1 then completes by claiming both halves themselves). Player 2's
-// very next flip — necessarily some other cell, since b is now unflippable
-// — must simply fail to match (no panic, no special-cased "stale" error)
-// and clear player 2's pending, exactly like an ordinary mismatch.
-func TestFlip_StalePendingSelfCorrectsOnNextFlip(t *testing.T) {
-	g := newTestGame(t, 3, 1, 2) // 4x4: 16 cells, room for a 3rd untouched cell
+// TestFlip_MatchClearsEveryPlayerSharingTheMatchedPendingCell exercises the
+// documented generalization in Flip's doc comment: when more than one
+// player independently holds the SAME cell pending (explicitly legal — see
+// TestFlip_TwoPlayersMayShareAPendingCell) and a third player then flips
+// the partner cell, ALL of them are cleared, not just whichever one the
+// internal search happened to land on first. This is also why the
+// documented lowest-PlayerID tie-break is unobservable in practice: every
+// player found holding a matching pending pick necessarily points at the
+// exact same physical partner cell (a pair has only two cells total), so
+// which one the search picks first can never change which cell counts as
+// "the partner" — only which players get cleared, and this test proves
+// that is ALL of them, deterministically.
+func TestFlip_MatchClearsEveryPlayerSharingTheMatchedPendingCell(t *testing.T) {
+	g := newTestGame(t, 3, 1, 3) // 4x4, 3 players
 	a, b := findPair(g.Faces)
 
-	if _, err := Flip(&g, nil, 2, b); err != nil {
-		t.Fatalf("player2 opens b: %v", err)
-	}
-	// Player 1 completes the same pair independently, stealing both halves
-	// out from under player 2's still-pending b.
 	if _, err := Flip(&g, nil, 1, a); err != nil {
 		t.Fatalf("player1 opens a: %v", err)
 	}
-	if _, err := Flip(&g, nil, 1, b); err != nil {
-		t.Fatalf("player1 claims b as their own second pick: %v", err)
+	if _, err := Flip(&g, nil, 2, a); err != nil {
+		t.Fatalf("player2 shares the same pending cell a: %v", err)
 	}
-	if owner := g.PairOwner[g.Faces[a]]; owner != 1 {
-		t.Fatalf("pair owner = %v, want player 1", owner)
+	p1, _ := g.Player(1)
+	p2, _ := g.Player(2)
+	if p1.Pending != a || p2.Pending != a {
+		t.Fatalf("both players should share Pending=%d, got p1=%d p2=%d", a, p1.Pending, p2.Pending)
 	}
 
-	// Player 2's pending (b) is now stale: b itself is unflippable, so their
-	// very next flip is necessarily some other cell — which must resolve as
-	// an ordinary, unremarkable mismatch against the stale pending face.
-	d := -1
-	for cell := range g.Faces {
-		if cell != a && cell != b {
-			d = cell
-			break
-		}
-	}
-	outcome, err := Flip(&g, nil, 2, d)
+	outcome, err := Flip(&g, nil, 3, b)
 	if err != nil {
-		t.Fatalf("player2's next flip on a stale pending: %v", err)
+		t.Fatalf("player3 completes b: %v", err)
 	}
-	if outcome.Matched {
-		t.Fatalf("outcome = %+v, want no match (stale pending can never spuriously match)", outcome)
+	if !outcome.Matched || outcome.MatchedBy != 3 {
+		t.Fatalf("outcome = %+v, want player 3 to claim the pair", outcome)
 	}
-	p2, _ := g.Player(2)
+	p1, _ = g.Player(1)
+	p2, _ = g.Player(2)
+	p3, _ := g.Player(3)
+	if p1.Pending != -1 {
+		t.Errorf("player1 Pending = %d after the match, want -1", p1.Pending)
+	}
 	if p2.Pending != -1 {
-		t.Errorf("player2 Pending = %d after the stale pick resolved, want -1", p2.Pending)
+		t.Errorf("player2 Pending = %d after the match, want -1", p2.Pending)
 	}
-	if p2.Score != 0 {
-		t.Errorf("player2 Score = %d, want 0", p2.Score)
+	if p3.Pending != -1 {
+		t.Errorf("player3 (the flipper) Pending = %d after their own match, want -1", p3.Pending)
+	}
+	if p1.Score != 0 || p2.Score != 0 {
+		t.Errorf("only the flipper should score: p1=%d p2=%d, want 0/0", p1.Score, p2.Score)
+	}
+}
+
+// TestFlip_SelfCompletionStillWorks proves the founder's any-player rule
+// subsumes, rather than removes, the classic same-player case: a player
+// who flips both halves of a pair themselves (with no one else's pending
+// involved at all) still completes and scores it exactly as before.
+func TestFlip_SelfCompletionStillWorks(t *testing.T) {
+	g := newTestGame(t, 3, 1, 1)
+	a, b := findPair(g.Faces)
+	if _, err := Flip(&g, nil, 1, a); err != nil {
+		t.Fatalf("Flip(a): %v", err)
+	}
+	outcome, err := Flip(&g, nil, 1, b)
+	if err != nil {
+		t.Fatalf("Flip(b): %v", err)
+	}
+	if !outcome.Matched || outcome.MatchedBy != 1 {
+		t.Fatalf("outcome = %+v, want player 1 to self-complete the pair", outcome)
 	}
 }
 

@@ -196,11 +196,9 @@ func TestFlip_MatchAndSnipeEndToEnd(t *testing.T) {
 		t.Fatalf("first pick should never match: %+v", outcome)
 	}
 
-	// bob snipes the pair by opening 'a' then 'b' himself — legal under the
-	// no-turn-order rules; alice's pending 'a' does not block him.
-	if _, err := Flip(ctx, db, gameID, "bob", a); err != nil {
-		t.Fatalf("Flip(bob, a): %v", err)
-	}
+	// bob snipes the pair in a SINGLE flip of 'b' — under the founder's
+	// any-player-may-match rule, he does not need to first flip 'a'
+	// himself; alice's still-exposed pending 'a' is enough.
 	outcome, err = Flip(ctx, db, gameID, "bob", b)
 	if err != nil {
 		t.Fatalf("Flip(bob, b): %v", err)
