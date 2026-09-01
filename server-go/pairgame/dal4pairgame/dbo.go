@@ -83,6 +83,14 @@ type PlayerDbo struct {
 	// Always zero for a bot seat.
 	ChatID int64 `json:"chatID,omitempty" firestore:"chatID,omitempty"`
 
+	// MessageID is this player's own anchored private board message, edited
+	// in place as the game progresses — the private-invite vs-Humans
+	// counterpart of GameDbo.MessageID, since there each player has their
+	// OWN board message rather than one shared group message. Zero means
+	// this player has not yet had a board message posted for them. Always
+	// zero for a bot seat.
+	MessageID int `json:"messageID,omitempty" firestore:"messageID,omitempty"`
+
 	// Pending mirrors pairgame.Player.Pending: this seat's own currently
 	// open first pick, or -1 for none.
 	Pending int `json:"pending" firestore:"pending"`

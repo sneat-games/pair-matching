@@ -1,6 +1,7 @@
 package pairsession
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/sneat-games/pair-matching/server-go/pairgame"
@@ -472,4 +473,207 @@ func TestGetView_UnrevealedCellsStayHidden(t *testing.T) {
 // idFor generates distinct userIDs for the overflow test.
 func idFor(i int) string {
 	return string(rune('a' + i))
+}
+
+func TestSetGroupMessage(t *testing.T) {
+	ctx, db := newMemoryDB(t)
+	gameID, _ := CreateVsHumansGame(ctx, db, 0, PlayerRef{UserID: "host"}, 123)
+
+	if err := SetGroupMessage(ctx, db, gameID, 456); err != nil {
+		t.Fatalf("SetGroupMessage: %v", err)
+	}
+	entry, _ := dal4pairgame.GetGame(ctx, db, gameID)
+	if entry.Data.MessageID != 456 {
+		t.Fatalf("MessageID = %d, want 456", entry.Data.MessageID)
+	}
+	view, err := GetView(ctx, db, gameID)
+	if err != nil {
+		t.Fatalf("GetView: %v", err)
+	}
+	if view.ChatID != 123 || view.MessageID != 456 {
+		t.Fatalf("view.ChatID/MessageID = %d/%d, want 123/456", view.ChatID, view.MessageID)
+	}
+
+	// Idempotent: setting the same value again is a no-op success.
+	if err := SetGroupMessage(ctx, db, gameID, 456); err != nil {
+		t.Fatalf("SetGroupMessage (repeat): %v", err)
+	}
+	entry, _ = dal4pairgame.GetGame(ctx, db, gameID)
+	if entry.Data.MessageID != 456 {
+		t.Fatalf("MessageID after repeat = %d, want 456", entry.Data.MessageID)
+	}
+}
+
+func TestSetGroupMessage_NotFound(t *testing.T) {
+	ctx, db := newMemoryDB(t)
+	if err := SetGroupMessage(ctx, db, "missing", 1); !errors.Is(err, ErrGameNotFound) {
+		t.Fatalf("SetGroupMessage(missing): err = %v, want ErrGameNotFound", err)
+	}
+}
+
+func TestSetPlayerChatID(t *testing.T) {
+	ctx, db := newMemoryDB(t)
+	gameID, _ := CreateVsHumansGame(ctx, db, 0, PlayerRef{UserID: "host"}, 0)
+	if err := JoinGame(ctx, db, gameID, PlayerRef{UserID: "guest"}); err != nil {
+		t.Fatalf("JoinGame: %v", err)
+	}
+
+	if err := SetPlayerChatID(ctx, db, gameID, "guest", 42); err != nil {
+		t.Fatalf("SetPlayerChatID: %v", err)
+	}
+	entry, _ := dal4pairgame.GetGame(ctx, db, gameID)
+	if entry.Data.Players[1].ChatID != 42 {
+		t.Fatalf("ChatID = %d, want 42", entry.Data.Players[1].ChatID)
+	}
+	view, err := GetView(ctx, db, gameID)
+	if err != nil {
+		t.Fatalf("GetView: %v", err)
+	}
+	if view.Players[1].ChatID != 42 {
+		t.Fatalf("view.Players[1].ChatID = %d, want 42", view.Players[1].ChatID)
+	}
+
+	// Idempotent: setting the same value again is a no-op success.
+	if err := SetPlayerChatID(ctx, db, gameID, "guest", 42); err != nil {
+		t.Fatalf("SetPlayerChatID (repeat): %v", err)
+	}
+
+	// Unknown player.
+	if err := SetPlayerChatID(ctx, db, gameID, "stranger", 1); !errors.Is(err, ErrPlayerNotInGame) {
+		t.Fatalf("SetPlayerChatID(stranger): err = %v, want ErrPlayerNotInGame", err)
+	}
+
+	// Zero chatID is a documented no-op, including for a non-existent game.
+	if err := SetPlayerChatID(ctx, db, "missing-game", "guest", 0); err != nil {
+		t.Fatalf("SetPlayerChatID with chatID=0 should be a no-op, got %v", err)
+	}
+}
+
+func TestSetPlayerChatID_NotFound(t *testing.T) {
+	ctx, db := newMemoryDB(t)
+	if err := SetPlayerChatID(ctx, db, "missing", "guest", 1); !errors.Is(err, ErrGameNotFound) {
+		t.Fatalf("SetPlayerChatID(missing game): err = %v, want ErrGameNotFound", err)
+	}
+}
+
+func TestSetPlayerChatID_RejectsBotSeat(t *testing.T) {
+	ctx, db := newMemoryDB(t)
+	gameID, _ := CreateVsBotGame(ctx, db, 0, PlayerRef{UserID: "host"}, 0, 0)
+	if err := SetPlayerChatID(ctx, db, gameID, "", 42); !errors.Is(err, ErrPlayerIsBot) {
+		t.Fatalf("SetPlayerChatID(bot seat): err = %v, want ErrPlayerIsBot", err)
+	}
+	entry, _ := dal4pairgame.GetGame(ctx, db, gameID)
+	if entry.Data.Players[1].ChatID != 0 {
+		t.Fatalf("bot seat ChatID = %d, want 0 (untouched)", entry.Data.Players[1].ChatID)
+	}
+}
+
+func TestSetPlayerMessage(t *testing.T) {
+	ctx, db := newMemoryDB(t)
+	gameID, _ := CreateVsHumansGame(ctx, db, 0, PlayerRef{UserID: "host"}, 0)
+	if err := JoinGame(ctx, db, gameID, PlayerRef{UserID: "guest"}); err != nil {
+		t.Fatalf("JoinGame: %v", err)
+	}
+
+	if err := SetPlayerMessage(ctx, db, gameID, "guest", 789); err != nil {
+		t.Fatalf("SetPlayerMessage: %v", err)
+	}
+	entry, _ := dal4pairgame.GetGame(ctx, db, gameID)
+	if entry.Data.Players[1].MessageID != 789 {
+		t.Fatalf("MessageID = %d, want 789", entry.Data.Players[1].MessageID)
+	}
+	view, err := GetView(ctx, db, gameID)
+	if err != nil {
+		t.Fatalf("GetView: %v", err)
+	}
+	if view.Players[1].MessageID != 789 {
+		t.Fatalf("view.Players[1].MessageID = %d, want 789", view.Players[1].MessageID)
+	}
+	// The host's own message must be untouched.
+	if view.Players[0].MessageID != 0 {
+		t.Fatalf("host's MessageID = %d, want 0 (untouched)", view.Players[0].MessageID)
+	}
+
+	// Idempotent: setting the same value again is a no-op success.
+	if err := SetPlayerMessage(ctx, db, gameID, "guest", 789); err != nil {
+		t.Fatalf("SetPlayerMessage (repeat): %v", err)
+	}
+	entry, _ = dal4pairgame.GetGame(ctx, db, gameID)
+	if entry.Data.Players[1].MessageID != 789 {
+		t.Fatalf("MessageID after repeat = %d, want 789", entry.Data.Players[1].MessageID)
+	}
+
+	// Unknown player.
+	if err := SetPlayerMessage(ctx, db, gameID, "stranger", 1); !errors.Is(err, ErrPlayerNotInGame) {
+		t.Fatalf("SetPlayerMessage(stranger): err = %v, want ErrPlayerNotInGame", err)
+	}
+}
+
+func TestSetPlayerMessage_NotFound(t *testing.T) {
+	ctx, db := newMemoryDB(t)
+	if err := SetPlayerMessage(ctx, db, "missing", "guest", 1); !errors.Is(err, ErrGameNotFound) {
+		t.Fatalf("SetPlayerMessage(missing game): err = %v, want ErrGameNotFound", err)
+	}
+}
+
+func TestSetPlayerMessage_RejectsBotSeat(t *testing.T) {
+	ctx, db := newMemoryDB(t)
+	gameID, _ := CreateVsBotGame(ctx, db, 0, PlayerRef{UserID: "host"}, 0, 0)
+	if err := SetPlayerMessage(ctx, db, gameID, "", 99); !errors.Is(err, ErrPlayerIsBot) {
+		t.Fatalf("SetPlayerMessage(bot seat): err = %v, want ErrPlayerIsBot", err)
+	}
+	entry, _ := dal4pairgame.GetGame(ctx, db, gameID)
+	if entry.Data.Players[1].MessageID != 0 {
+		t.Fatalf("bot seat MessageID = %d, want 0 (untouched)", entry.Data.Players[1].MessageID)
+	}
+}
+
+// TestSettersDoNotTouchRuleState guards against a session-layer setter
+// accidentally reaching into PairOwner, Pending, Log, or Score — these are
+// plain state recordings, not game moves (see the package doc on Flip/
+// RobotMove owning all rule state).
+func TestSettersDoNotTouchRuleState(t *testing.T) {
+	ctx, db := newMemoryDB(t)
+	gameID, _ := CreateVsHumansGame(ctx, db, 3, PlayerRef{UserID: "alice"}, 0)
+	if err := JoinGame(ctx, db, gameID, PlayerRef{UserID: "bob"}); err != nil {
+		t.Fatalf("JoinGame: %v", err)
+	}
+	if err := StartGame(ctx, db, gameID); err != nil {
+		t.Fatalf("StartGame: %v", err)
+	}
+	before, err := GetView(ctx, db, gameID)
+	if err != nil {
+		t.Fatalf("GetView: %v", err)
+	}
+
+	if err := SetGroupMessage(ctx, db, gameID, 1); err != nil {
+		t.Fatalf("SetGroupMessage: %v", err)
+	}
+	if err := SetPlayerChatID(ctx, db, gameID, "alice", 2); err != nil {
+		t.Fatalf("SetPlayerChatID: %v", err)
+	}
+	if err := SetPlayerMessage(ctx, db, gameID, "bob", 3); err != nil {
+		t.Fatalf("SetPlayerMessage: %v", err)
+	}
+
+	after, err := GetView(ctx, db, gameID)
+	if err != nil {
+		t.Fatalf("GetView: %v", err)
+	}
+	if len(after.Log) != len(before.Log) {
+		t.Fatalf("Log changed: before=%d entries, after=%d", len(before.Log), len(after.Log))
+	}
+	for i := range after.Players {
+		if after.Players[i].Score != before.Players[i].Score {
+			t.Fatalf("Players[%d].Score changed: before=%d, after=%d", i, before.Players[i].Score, after.Players[i].Score)
+		}
+		if after.Players[i].Pending != before.Players[i].Pending {
+			t.Fatalf("Players[%d].Pending changed: before=%d, after=%d", i, before.Players[i].Pending, after.Players[i].Pending)
+		}
+	}
+	for i := range after.Cells {
+		if after.Cells[i].Matched != before.Cells[i].Matched || after.Cells[i].MatchedBy != before.Cells[i].MatchedBy {
+			t.Fatalf("Cells[%d] match state changed", i)
+		}
+	}
 }

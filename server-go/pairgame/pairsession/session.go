@@ -250,6 +250,80 @@ func RobotMove(ctx context.Context, db dal.DB, gameID string) (outcome pairgame.
 	return outcome, nil
 }
 
+// SetGroupMessage records gameID's anchored group status message — the
+// single message a group-chat game's host wiring edits in place as
+// players join/flip/finish (see dal4pairgame.GameDbo.MessageID; the game
+// must already carry the group's ChatID, set at creation time). Mirrors
+// greedgame's SetGroupMessage. Idempotent: setting the same messageID
+// again is a no-op success, not an error.
+func SetGroupMessage(ctx context.Context, db dal.DB, gameID string, messageID int) error {
+	return db.RunReadwriteTransaction(ctx, func(ctx context.Context, tx dal.ReadwriteTransaction) error {
+		entry, err := dal4pairgame.GetGameTx(ctx, tx, gameID)
+		if err != nil {
+			return mapNotFound(err)
+		}
+		if entry.Data.MessageID == messageID {
+			return nil // already up to date; avoid a needless write
+		}
+		entry.Data.MessageID = messageID
+		return tx.Set(ctx, entry.Record)
+	})
+}
+
+// SetPlayerChatID opportunistically records userID's private Telegram chat
+// ID with the game's bot (e.g. the first time they interact with the bot
+// in a DM), so the bot can address them directly. Mirrors greedgame's
+// SetPlayerChatID: a no-op if chatID is 0 (nothing learned yet) or if the
+// stored value already matches. ErrPlayerNotInGame if userID is not a
+// seated player; ErrPlayerIsBot if userID resolves to the game's bot seat
+// (a bot seat never has a chat of its own — see
+// dal4pairgame.PlayerDbo.ChatID).
+func SetPlayerChatID(ctx context.Context, db dal.DB, gameID, userID string, chatID int64) error {
+	if chatID == 0 {
+		return nil
+	}
+	return db.RunReadwriteTransaction(ctx, func(ctx context.Context, tx dal.ReadwriteTransaction) error {
+		entry, err := dal4pairgame.GetGameTx(ctx, tx, gameID)
+		if err != nil {
+			return mapNotFound(err)
+		}
+		idx, pErr := findPlayerIndexByUserID(entry.Data.Players, userID)
+		if pErr != nil {
+			return pErr
+		}
+		if entry.Data.Players[idx].ChatID == chatID {
+			return nil // already up to date; avoid a needless write
+		}
+		entry.Data.Players[idx].ChatID = chatID
+		return tx.Set(ctx, entry.Record)
+	})
+}
+
+// SetPlayerMessage records userID's own anchored private board message —
+// the private-invite vs-Humans counterpart of SetGroupMessage, since there
+// each player has their OWN board message to edit in place rather than one
+// shared group message (see dal4pairgame.PlayerDbo.MessageID). Idempotent:
+// setting the same messageID again is a no-op success. ErrPlayerNotInGame
+// if userID is not a seated player; ErrPlayerIsBot if userID resolves to
+// the game's bot seat (a bot seat never has a message of its own).
+func SetPlayerMessage(ctx context.Context, db dal.DB, gameID, userID string, messageID int) error {
+	return db.RunReadwriteTransaction(ctx, func(ctx context.Context, tx dal.ReadwriteTransaction) error {
+		entry, err := dal4pairgame.GetGameTx(ctx, tx, gameID)
+		if err != nil {
+			return mapNotFound(err)
+		}
+		idx, pErr := findPlayerIndexByUserID(entry.Data.Players, userID)
+		if pErr != nil {
+			return pErr
+		}
+		if entry.Data.Players[idx].MessageID == messageID {
+			return nil // already up to date; avoid a needless write
+		}
+		entry.Data.Players[idx].MessageID = messageID
+		return tx.Set(ctx, entry.Record)
+	})
+}
+
 // GetView loads gameID and projects it into a read-only View (a plain,
 // non-transactional read — see the package doc on why the result does not
 // depend on who is asking).
@@ -285,12 +359,14 @@ func buildView(gameID string, d *dal4pairgame.GameDbo, g pairgame.GameState) Vie
 	players := make([]PlayerView, len(g.Players))
 	for i, p := range g.Players {
 		players[i] = PlayerView{
-			ID:      p.ID,
-			UserID:  d.Players[i].UserID,
-			Name:    d.Players[i].Name,
-			IsBot:   p.IsBot,
-			Score:   p.Score,
-			Pending: p.Pending,
+			ID:        p.ID,
+			UserID:    d.Players[i].UserID,
+			Name:      d.Players[i].Name,
+			IsBot:     p.IsBot,
+			Score:     p.Score,
+			Pending:   p.Pending,
+			ChatID:    d.Players[i].ChatID,
+			MessageID: d.Players[i].MessageID,
 		}
 	}
 
@@ -302,6 +378,8 @@ func buildView(gameID string, d *dal4pairgame.GameDbo, g pairgame.GameState) Vie
 		Log:       g.Log,
 		Complete:  g.IsComplete(),
 		Winners:   g.Winners(),
+		ChatID:    d.ChatID,
+		MessageID: d.MessageID,
 	}
 }
 
@@ -319,4 +397,24 @@ func findPlayerIDByUserID(players []dal4pairgame.PlayerDbo, userID string) pairg
 		}
 	}
 	return pairgame.NoPlayer
+}
+
+// findPlayerIndexByUserID resolves userID to its index in players for
+// SetPlayerChatID/SetPlayerMessage. Unlike findPlayerIDByUserID, it
+// distinguishes "no such player" (ErrPlayerNotInGame) from "that player is
+// the bot seat" (ErrPlayerIsBot) — a bot seat's UserID is always empty, so
+// it can only ever match a caller-supplied userID of "", but the explicit
+// IsBot check makes that rejection reason unambiguous rather than an
+// incidental side effect of an empty-string comparison.
+func findPlayerIndexByUserID(players []dal4pairgame.PlayerDbo, userID string) (int, error) {
+	for i, p := range players {
+		if p.UserID != userID {
+			continue
+		}
+		if p.IsBot {
+			return -1, ErrPlayerIsBot
+		}
+		return i, nil
+	}
+	return -1, ErrPlayerNotInGame
 }
