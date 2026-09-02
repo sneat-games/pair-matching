@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"math/rand"
+	randv2 "math/rand/v2"
 )
 
 // LayoutMode selects how a Snapshot's card layout is carried on the wire.
@@ -46,12 +47,21 @@ const (
 // through this — they differ only in how rnd's seed is produced (an
 // unkeyed public seed vs. an HMAC digest of a bot-side secret).
 func shuffledFaces(rnd *rand.Rand, pairs int) []uint8 {
+	faces := facesInPairOrder(pairs)
+	rnd.Shuffle(len(faces), func(i, j int) { faces[i], faces[j] = faces[j], faces[i] })
+	return faces
+}
+
+// facesInPairOrder builds the unshuffled face slice: each pair id in
+// [0, pairs) appearing exactly twice. Shared by both the unkeyed
+// (ShuffleFaces) and keyed (DeriveFaces) paths, which differ only in which
+// generator drives the shuffle.
+func facesInPairOrder(pairs int) []uint8 {
 	faces := make([]uint8, pairs*2)
 	for i := 0; i < pairs; i++ {
 		faces[i] = uint8(i)
 		faces[i+pairs] = uint8(i)
 	}
-	rnd.Shuffle(len(faces), func(i, j int) { faces[i], faces[j] = faces[j], faces[i] })
 	return faces
 }
 
@@ -96,11 +106,27 @@ func DeriveFaces(secret []byte, version, sizeIndex uint8, seed uint32) []uint8 {
 	binary.BigEndian.PutUint32(msg[2:], seed)
 	mac.Write(msg[:])
 	digest := mac.Sum(nil)
-	// The digest is 32 bytes of good entropy; the low 8 bytes are ample to
-	// seed math/rand's Fisher-Yates for boards this small (<=64 cells).
-	// Without `secret`, digest — and so the resulting layout — is
-	// infeasible to reproduce; that unpredictability, not the shuffle
-	// itself, is what keeps the layout hidden from a callback_data reader.
-	derivedSeed := int64(binary.BigEndian.Uint64(digest[:8]))
-	return shuffledFaces(rand.New(rand.NewSource(derivedSeed)), pairs) //nolint:gosec // seeded from an HMAC digest, not used as the security primitive itself
+	// Drive the shuffle from 128 bits of the digest through math/rand/v2's
+	// PCG, NOT through legacy math/rand.
+	//
+	// This is load-bearing. rngSource.Seed reduces its int64 argument
+	// modulo 2^31-1, so seeding legacy math/rand from this digest would
+	// discard everything above 31 bits: two digests exactly 2^31-1 apart
+	// produce byte-identical shuffles, and the whole keyed layout space
+	// collapses to ~2.1e9 boards per (version, sizeIndex) no matter how
+	// strong `secret` is. At that size an attacker never needs the secret —
+	// enumerating every state and filtering against a handful of cells
+	// already visible on the board recovers the layout outright. PCG takes
+	// the full 128 bits, so the layout space is bounded by the secret again
+	// rather than by the generator.
+	//
+	// (pair_render.go in sneat-co/sneat-bots hit the same legacy-math/rand
+	// collision on its cosmetic emoji permutation and fixed it there; this
+	// is the same defect on the derivation that actually matters.)
+	lo := binary.BigEndian.Uint64(digest[0:8])
+	hi := binary.BigEndian.Uint64(digest[8:16])
+	rnd := randv2.New(randv2.NewPCG(lo, hi))
+	faces := facesInPairOrder(pairs)
+	rnd.Shuffle(len(faces), func(i, j int) { faces[i], faces[j] = faces[j], faces[i] })
+	return faces
 }
