@@ -1,12 +1,12 @@
 ---
 format: https://specscore.md/feature-specification
-status: Draft
+status: Stable
 ---
 
 # Feature: Pair Matching rules engine
 
 > [SpecScore.**Studio**](https://specscore.studio): | [Explore](https://specscore.studio/app/github.com/sneat-games/pair-matching/spec/features/pair-matching-rules?op=explore) | [Edit](https://specscore.studio/app/github.com/sneat-games/pair-matching/spec/features/pair-matching-rules?op=edit) | [Ask question](https://specscore.studio/app/github.com/sneat-games/pair-matching/spec/features/pair-matching-rules?op=ask) | [Request change](https://specscore.studio/app/github.com/sneat-games/pair-matching/spec/features/pair-matching-rules?op=request-change) |
-**Status:** Draft
+**Status:** Stable
 **Source Ideas:** pair-matching-game
 
 ## Summary
@@ -112,6 +112,27 @@ call can complete a pair outright (sniping an exposed card, or completing the
 bot's own already-open pick), so "two ticks to complete a pair" is not
 guaranteed.
 
+### Board presets
+
+#### REQ: board-preset-index-is-wire-format
+
+A board preset's index into `Sizes` MUST be treated as part of the wire
+format, not an implementation detail: `GameState.SizeIndex`, a stored
+`GameDbo.SizeIndex`, and every wire/record reference to a board size all
+carry this index, not `Width`/`Height` directly. New presets MAY be
+appended to `Sizes`; an existing entry MUST NOT be reordered or removed —
+doing either would silently reinterpret every already-encoded snapshot or
+persisted record's size index as a different board.
+
+### Player setup
+
+#### REQ: human-seat-memory-forced-to-zero
+
+`NewGame` MUST force a non-bot seat's `Player.Memory` to `0` regardless of
+what a caller's `PlayerSetup.Memory` requests for that seat — a human has no
+memory dial (see `Player.Memory`'s doc comment); a caller-supplied non-zero
+value for a human seat is silently discarded, not rejected as an error.
+
 ### Board layout & secrecy
 
 #### REQ: two-layout-modes
@@ -154,6 +175,19 @@ client (or direct Bot API access) the entire solution. This is the reason
 view/render layer identically even though they never touch the HMAC secret
 (see `pair-matching-sessions`' `REQ: view-exposes-only-revealed-cells`).
 
+What this REQ does NOT claim: that the layout is cryptographically
+unrecoverable by a determined party without the secret. The layout is not
+carried on the wire and is not trivially recoverable by reading
+`callback_data` — that much is guaranteed by construction (nothing to read).
+Whether it resists a determined offline attack depends on `DeriveFaces`'
+own derivation strength, which is a separate, narrower property (see
+REQ:seed-derived-layout-is-pure-and-uncached's Testing strategy entry on a
+real defect that once weakened it). The founder's own position on this is
+explicit: "honestly I don't care about cheating at all at this stage" — so
+this REQ is written as what is true and useful (no layout on the wire, no
+casual recovery), not as a security guarantee this Feature is not actually
+prepared to stand behind.
+
 ### Solo state in callback data
 
 #### REQ: solo-only-codec
@@ -177,14 +211,38 @@ never be encoded back into a callback button. Measured
 characters (10 raw bytes before encoding), comfortably under budget; 8x8
 `LayoutInline` does not fit (62 base64 characters) and is rejected.
 
+#### REQ: solo-snapshot-is-unauthenticated
+
+`Decode` performs no integrity check (no MAC, no signature) over the
+encoded `PairOwner`/`Pending`/`Seed`/`Mode`/`SizeIndex` fields themselves —
+only `DeriveFaces`' HMAC secret protects the *layout* (which face is under
+which cell), never the *state* a client hands back. A party who can write
+arbitrary `callback_data` can therefore hand-craft a snapshot that decodes
+to any board state they like — every pair pre-marked matched and owned by
+player 1, for instance — and `Decode` will accept it as a legal prior
+state. This is a deliberate consequence of `REQ: solo-only-codec`'s
+stateless design, not an oversight to silently work around: see
+`telegram-pair-matching-bot`'s `REQ: solo-no-server-persistence`, which
+carries this forward as one of Solo's accepted consequences.
+
 ### Robot difficulty
 
 #### REQ: memory-window-difficulty
 
 A bot's difficulty MUST be a single dial, `Player.Memory`: how many of the
 most recent public `Log` entries — from any player, human or bot — it may
-consult when choosing a move. `Memory == 0` MUST play a uniformly random
-legal move (`RandomMover`), consulting the log not at all.
+consult when choosing a move. `Memory == 0` MUST select uniformly among the
+currently legal cells (`RandomMover`), consulting the log not at all — but
+this is only true of a properly-seeded `RandomMover`. `RandomMover`'s own
+zero-value convenience (`Rand` left `nil`) falls back to a FRESH
+`rand.New(rand.NewSource(1))` on every call, which is fine for a one-shot
+call but is deterministic across repeated calls with the same legal-move
+count — a caller invoking `Choose` many times over one bot's lifetime (every
+production caller) MUST supply a real, persistently-seeded `Rand`, or
+"uniformly random" degrades to "the same relative pick every time." See
+`pair-matching-sessions`' `REQ: robot-move-one-flip-per-call`, which
+documents the concrete production footgun this caused before it was fixed
+(`newMoveRand`).
 
 #### REQ: memory-strategy-prefers-sniping-then-pairing-then-random
 
@@ -215,6 +273,10 @@ board's cell count is a real difficulty step, not a cosmetic one.
   wiring implements Solo's callback-data flow — see
   `telegram-pair-matching-bot`. This package itself has no persistence
   dependency and no knowledge of Telegram.
+- `DeriveFaces` holds no package-level cache or memoization of any kind —
+  this is a code-inspection fact (there is no state for a call to read from
+  or write to besides its own arguments), not something a black-box output
+  test can distinguish from "a cache that happens to always be a hit."
 
 ## Testing strategy
 
@@ -231,12 +293,26 @@ board's cell count is a real difficulty step, not a cosmetic one.
   `ErrCellAlreadyMatched`, `ErrCellIsPending`) and `GameState`'s completion/
   scoring/winners logic beyond the conformance scenarios.
 - `layout_test.go` covers `ShuffleFaces`/`DeriveFaces` shape guarantees
-  (every pair id appears exactly twice) and determinism.
-- `TestDeriveFacesRequiresTheSecret` / `TestDeriveFacesWrongSecretGivesWrongLayout`
-  (`layout_test.go`) are the secrecy property behind
-  REQ:seed-derived-layout-is-pure-and-uncached and
-  REQ:unmatched-pair-id-never-leaves-server: decoding with the wrong secret
-  must not reproduce the true layout.
+  (every pair id appears exactly twice) and determinism, and carries
+  `TestDeriveFacesRequiresTheSecret`. `TestDeriveFacesWrongSecretGivesWrongLayout`
+  is in `snapshot_test.go`, not `layout_test.go` — both are the property
+  behind REQ:seed-derived-layout-is-pure-and-uncached: decoding with the
+  wrong secret produces a *different* layout, not the true one. This is
+  weaker than a cryptographic secrecy guarantee — see
+  REQ:unmatched-pair-id-never-leaves-server's own note on what is and is not
+  claimed here, and the AC below.
+- `TestDeriveFacesDoesNotUseLegacyRandSeeding` and
+  `TestLegacyRandSeedCollapseIsReal` (`layout_test.go`, added by
+  `sneat-games/pair-matching` PR #7, open at the time of writing) are the
+  regression guard for a real defect the earlier text here did not flag:
+  `DeriveFaces` fed its HMAC digest through legacy `math/rand`, whose
+  `Seed(int64)` reduces its argument modulo 2³¹−1 — collapsing the keyed
+  layout space to ~2.1×10⁹ boards per `(version, sizeIndex)` regardless of
+  secret strength, small enough to enumerate offline. PR #7 reseeds the
+  shuffle from the full 128-bit digest via `math/rand/v2`'s PCG instead.
+  `ShuffleFaces` (the unkeyed `LayoutInline` path `pair-matching-sessions`
+  uses for every stored game) is unaffected — it carries no secret to
+  collapse.
 - `snapshot_test.go`'s `TestSoloBudgetMatrix` is the living measurement
   behind REQ:solo-board-size-gated-by-budget — it reports, per board size and
   layout mode, the actual `Encode()` length and fails if `Fits()` claims true
@@ -357,6 +433,33 @@ highest score — one PlayerID for a clear winner, more than one for a tie.
 public `Log` — the same `GameState` a human player could inspect from the
 chat — and exactly one `Flip` call results per invocation.
 
+### AC: board-preset-order-is-append-only
+**Requirements:** pair-matching-rules#req:board-preset-index-is-wire-format
+
+**Given** the current `Sizes` slice
+**When** a future change adds a new board preset
+**Then** it is appended at the end, and every existing preset keeps the same
+index it has today — a saved `SizeIndex` from before the change still
+identifies the same board size after it.
+
+### AC: human-seat-cannot-set-its-own-memory
+**Requirements:** pair-matching-rules#req:human-seat-memory-forced-to-zero
+
+**Given** a `PlayerSetup{IsBot: false, Memory: 7}` (or any non-zero value)
+**When** `NewGame` builds that seat
+**Then** the resulting `Player.Memory` is `0`, not `7` — the caller-supplied
+value is silently discarded for a non-bot seat.
+
+### AC: hand-crafted-solo-snapshot-decodes-without-a-check
+**Requirements:** pair-matching-rules#req:solo-snapshot-is-unauthenticated
+
+**Given** a `callback_data` string a caller constructs by hand (not produced
+by a prior `Encode` call) that is well-formed for `Decode`'s bit layout but
+claims, say, every pair already matched
+**When** `Decode` is called on it
+**Then** it succeeds and returns that claimed state — `Decode` performs no
+check that the state could have arisen from real gameplay.
+
 ### AC: both-layout-modes-yield-a-valid-shuffle
 **Requirements:** pair-matching-rules#req:two-layout-modes
 
@@ -366,23 +469,29 @@ separately, under `LayoutSeedDerived` (`DeriveFaces`)
 **Then** each produces a `[]uint8` of length `Size.Cells()` in which every
 pair id in `[0, Size.Pairs())` appears exactly twice.
 
-### AC: derive-faces-is-deterministic-and-uncached
+### AC: derive-faces-is-deterministic
 **Requirements:** pair-matching-rules#req:seed-derived-layout-is-pure-and-uncached
 
 **Given** the same `(secret, version, sizeIndex, seed)`
 **When** `DeriveFaces` is called twice, independently, with nothing carried
 over between calls
-**Then** both calls return the identical layout — proving the derivation
-needs no cache or persisted state to be reproducible.
+**Then** both calls return the identical layout. (This AC verifies
+determinism only — a hidden cache would also pass it; "no cache exists" is
+a code-inspection fact recorded in Architecture above, not something this
+output-equality test can distinguish from a cache that always hits.)
 
-### AC: wrong-secret-cannot-recover-the-layout
+### AC: wrong-secret-yields-a-different-layout
 **Requirements:** pair-matching-rules#req:solo-secret-from-env, pair-matching-rules#req:unmatched-pair-id-never-leaves-server
 
 **Given** a `LayoutSeedDerived` game's public `Seed`
 **When** `DeriveFaces` is called with a secret other than the one the game
 was created with
-**Then** the resulting layout differs from the true one — a party who can
-read the public seed but not the secret cannot recover the board.
+**Then** the resulting layout differs from the true one. This is NOT a claim
+that the true layout is cryptographically unrecoverable without the secret
+— see REQ:unmatched-pair-id-never-leaves-server's note on what is and is
+not guaranteed. `TestDeriveFacesDoesNotUseLegacyRandSeeding` (PR #7) is the
+regression guard for the specific defect that once made this weaker than
+intended (the legacy-`math/rand`-seeding collapse — see Testing strategy).
 
 ### AC: solo-encode-rejects-non-solo-shapes
 **Requirements:** pair-matching-rules#req:solo-only-codec

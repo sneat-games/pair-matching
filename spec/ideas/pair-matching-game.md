@@ -1,11 +1,11 @@
 ---
 format: https://specscore.md/idea-specification
-status: Specifying
+status: Specified
 ---
 
 # Idea: Pair Matching game
 
-**Status:** Specifying
+**Status:** Specified
 **Date:** 2026-09-01
 **Owner:** alexander.trakhimenok@gmail.com
 **Promotes To:** pair-matching-rules, pair-matching-sessions, telegram-pair-matching-bot

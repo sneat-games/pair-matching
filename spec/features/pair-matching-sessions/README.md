@@ -1,12 +1,12 @@
 ---
 format: https://specscore.md/feature-specification
-status: Draft
+status: Stable
 ---
 
 # Feature: Pair Matching stored-mode sessions
 
 > [SpecScore.**Studio**](https://specscore.studio): | [Explore](https://specscore.studio/app/github.com/sneat-games/pair-matching/spec/features/pair-matching-sessions?op=explore) | [Edit](https://specscore.studio/app/github.com/sneat-games/pair-matching/spec/features/pair-matching-sessions?op=edit) | [Ask question](https://specscore.studio/app/github.com/sneat-games/pair-matching/spec/features/pair-matching-sessions?op=ask) | [Request change](https://specscore.studio/app/github.com/sneat-games/pair-matching/spec/features/pair-matching-sessions?op=request-change) |
-**Status:** Draft
+**Status:** Stable
 **Source Ideas:** pair-matching-game
 
 ## Summary
@@ -63,6 +63,15 @@ and zero for `ModeVsHumans`, and a recognized `Status`. This is a structural
 gate only — it holds no game rule (match resolution, scoring, turn
 legality); those stay entirely in `pair-matching-rules`.
 
+**What this gate does NOT check, stated explicitly:** `Validate()` does not
+enforce `pairgame.MaxPlayers` (2..8 for `ModeVsHumans`) as a player-count
+ceiling — nothing in `Validate()` itself rejects a `GameDbo` with more than
+8 players. That ceiling is enforced only by `JoinGame`'s own
+`ErrTooManyPlayers` check on the ordinary join path (see
+`REQ:vs-humans-lobby-then-deal`). A `GameDbo` written by any other path —
+today there is none in this package, but `Validate()` alone would not catch
+one — would not be rejected for exceeding the ceiling.
+
 ### Creating & joining a game
 
 #### REQ: vs-bot-dealt-immediately
@@ -111,9 +120,15 @@ separate `RobotMove` invocations, exactly how a timer-driven bot is
 driven — would otherwise pick the same relative legal-move position every
 time and could cycle the bot between the same cells indefinitely. A caller
 drives the bot on its own timer by invoking `RobotMove` once per tick; one
-card per tick is deliberate — completing a pair still costs the bot a
-minimum of two ticks, which keeps its move visible and beatable rather than
-appearing to complete pairs instantly.
+card per tick is deliberate, so the bot's play is paced and visible rather
+than resolving a whole turn silently between renders. This does NOT mean
+completing a pair costs the bot two ticks: `MemoryStrategy.Choose` opens
+with its snipe check (see `pair-matching-rules`' `REQ:
+memory-strategy-prefers-sniping-then-pairing-then-random`), so a single
+`RobotMove` call can complete a pair outright whenever a live snipeable
+exposure is in the bot's remembered window — exactly as
+`pair-matching-rules`' `REQ: bot-plays-by-identical-rules` already states
+for any flipper, bot or human.
 
 #### REQ: game-completion-transitions-status
 
@@ -137,13 +152,36 @@ stored-mode instance of `pair-matching-rules`' **SECURITY**
 that builds a Telegram message straight from a `View` inherits this
 guarantee for free.
 
+**A real trap for an implementer, stated explicitly:** `Revealed` means
+*ever* named by a `Log` entry, and stays `true` forever once set — it is
+NOT the same thing as "currently open" (which the founder's board-display
+model actually needs — see `telegram-pair-matching-bot`'s rendering
+requirements). "Currently open" means a cell that is either matched, or
+that some seated player's `Pending` points at right now; a cell can be
+`Revealed` (once flipped, mismatched, and long since replaced by that
+player's next pending pick) while being neither matched nor anyone's
+current pending — and per the founder's decision, THAT cell must render
+face-down again. A render layer that treats `CellView.Revealed` as "show
+the face" would leave every card ever flipped permanently face-up and
+destroy the memory game. `Revealed` exists on `CellView` as a historical
+"has this pair's identity ever legitimately become public knowledge"
+fact (harmless to expose at this engine-projection layer, since a
+`Revealed` cell's pair id was already disclosed through the public `Log`)
+— not as a rendering signal. A render layer's "is this cell currently
+open" question is answered by matched-or-pending, computed from `Matched`
+and each `PlayerView.Pending`, never from `Revealed`.
+
 #### REQ: view-is-not-viewer-dependent
 
-`GetView`'s output MUST NOT vary by who is asking. Because every reveal is
-public and permanent (`pair-matching-rules`' `REQ: public-reveal-log`),
-there is no per-player hidden hand to filter — unlike a game with a
-legitimately private hand, one `View` is correct for every viewer of the
-same game.
+`GetView`'s output MUST NOT vary by who is asking. Under the founder's
+board-display model (every open card is visible to every player, with no
+attribution and no per-player privacy — see `telegram-pair-matching-bot`),
+there is no hidden hand anywhere in this game, at any layer: every matched
+pair and every player's current pending pick is public information to
+every viewer. One `View` is therefore correct for every viewer of the same
+game — this was already true of `GetView`'s shape before that display
+model was settled (it has never taken a viewer parameter), and is now also
+the *correct* behavior rather than merely a convenient one.
 
 ### Anchored messages
 
@@ -216,7 +254,9 @@ the out-of-repo bot layer — see `telegram-pair-matching-bot`).
   (`TestGetGameTx_ParticipatesInTransaction`), not-found handling
   (`TestGetGame_NotFound`), and `GameDbo.Validate`'s structural gate
   (`TestGameDbo_Validate`) — this is the regression guard for
-  REQ:structural-validation-before-persist.
+  REQ:structural-validation-before-persist. `TestGameDbo_Validate` does not
+  assert anything about a player count above `pairgame.MaxPlayers`, matching
+  that REQ's own note that `Validate()` does not enforce that ceiling.
 - `pairsession/session_test.go` is this Feature's main suite, one test per
   API behavior: `TestCreateVsBotGame_DealsAndActivatesImmediately` /
   `TestCreateVsHumansGame_SeedsALobbyWithNoBoardYet` for
@@ -238,12 +278,18 @@ the out-of-repo bot layer — see `telegram-pair-matching-bot`).
   now documents — it failed to terminate within a generous move budget
   before `newMoveRand` was introduced); `TestGetView_UnrevealedCellsStayHidden`
   is this Feature's own in-repo regression guard for
-  REQ:view-exposes-only-revealed-cells, alongside the two downstream tests
-  named in `pair-matching-rules`' Testing strategy
+  REQ:view-exposes-only-revealed-cells — but it currently only proves the
+  trivial all-cells-hidden case (a freshly dealt game, zero flips). It does
+  NOT yet prove non-interference on a partially-played board (some cells
+  matched, some revealed-but-unmatched, some never touched) the way the AC
+  below requires — that stronger variant does not exist in this package
+  yet; see the AC's own note. The two downstream tests named in
+  `telegram-pair-matching-bot`'s Testing strategy
   (`TestRenderPairStoredBoard_UnmatchedCellsLeakNoLayout` in
   `sneat-co/sneat-bots`, `TestToCellViews_NeverLeaksAnUnmatchedCellsPairID` in
-  `sneat-co/sneat-go`) that guard the same property downstream of this
-  Feature's `View`; `TestSetGroupMessage`, `TestSetGroupMessage_NotFound`,
+  `sneat-co/sneat-go`) guard the same underlying property one layer further
+  downstream, at the render/translation layer that consumes this Feature's
+  `View`; `TestSetGroupMessage`, `TestSetGroupMessage_NotFound`,
   `TestSetPlayerChatID`, `TestSetPlayerChatID_RejectsBotSeat`,
   `TestSetPlayerMessage`, `TestSetPlayerMessage_RejectsBotSeat`, and
   `TestSettersDoNotTouchRuleState` cover the anchored-message REQs.
@@ -287,6 +333,16 @@ ID or `UserID`, or seating the wrong bot count for its `Mode`
 **When** `Validate()` is called (as every persist path does)
 **Then** it returns a descriptive error and the record is not written.
 
+### AC: validate-does-not-catch-an-oversized-player-list
+**Requirements:** pair-matching-sessions#req:structural-validation-before-persist
+
+**Given** a `GameDbo` constructed directly (not through `JoinGame`) with
+more than 8 players, otherwise well-formed
+**When** `Validate()` is called on it
+**Then** it returns `nil` (no error) — `Validate()` alone does not reject an
+oversized player list; only `JoinGame`'s own check does, on the ordinary
+join path.
+
 ### AC: vs-bot-game-is-immediately-playable
 **Requirements:** pair-matching-sessions#req:vs-bot-dealt-immediately
 
@@ -311,9 +367,15 @@ or calling `JoinGame`/`StartGame` against a vs-Bot game, is rejected instead.
 **Given** an active game
 **When** `Flip` is called for a seated player
 **Then** the read of the pre-flip state and the write of the post-flip state
-happen inside one transaction, so a second `Flip` call against the same game
-cannot observe or act on the stale pre-flip state; a call from an unseated
-`userID`, or against a game that is not `StatusActive`, is rejected instead.
+happen inside one transaction (`tx.Get` then `tx.Set` on the same
+`dal.ReadwriteTransaction`), and a call from an unseated `userID`, or
+against a game that is not `StatusActive`, is rejected instead. The
+"cannot observe or act on the stale pre-flip state" half of this claim is
+NOT independently exercised by anything in this repo today: the in-memory
+`dal.DB` this package's tests run against (`testdb_test.go`) has no
+documented contention semantics, so no test here can fail if that guarantee
+were broken — this AC is verified by code inspection of the transaction
+boundary, not by a concurrency test.
 
 ### AC: robot-move-flips-exactly-one-card
 **Requirements:** pair-matching-sessions#req:robot-move-one-flip-per-call
@@ -334,22 +396,33 @@ rejected instead.
 **Then** the stored `Status` becomes `StatusFinished` in that same call, and
 a further `Flip` or `RobotMove` call against the game is rejected.
 
-### AC: unflipped-cells-carry-no-pair-id-in-the-view
+### AC: never-flipped-cells-do-not-leak-through-the-view
 **Requirements:** pair-matching-sessions#req:view-exposes-only-revealed-cells
 
-**Given** a freshly dealt game with no flips yet
-**When** `GetView` is called
-**Then** every `CellView` has `Revealed == false`, and no cell's true pair id
-is present anywhere in the returned `View`.
+**Given** a game with a mix of matched cells, revealed-but-unmatched cells,
+and cells that have never been flipped
+**When** every never-flipped cell's true `Faces` entry (its real pair id) is
+overwritten with a poisoned sentinel value in the stored `GameDbo` before
+calling `GetView` — the non-interference shape of `sneat-co/sneat-bots`'
+`TestRenderPairStoredBoard_UnmatchedCellsLeakNoLayout`, adapted to this
+package's `Revealed`-gated (not `Matched`-gated) contract
+**Then** every never-flipped cell's `CellView` is byte-identical to what it
+would have been with the true pair id in place (`Revealed == false`, and
+`PairID` unaffected by the poisoned value) — proving `GetView` never reads
+a never-flipped cell's true pair id into the `View` at all, not merely that
+it happens not to. This AC is stronger than, and not yet satisfied by, the
+existing `TestGetView_UnrevealedCellsStayHidden` (see Testing strategy
+above) — that test only covers the trivial zero-flip case.
 
 ### AC: view-is-identical-for-every-caller
 **Requirements:** pair-matching-sessions#req:view-is-not-viewer-dependent
 
-**Given** a game with a mix of revealed and unrevealed cells
-**When** `GetView` is called for that same `gameID` without passing a
-viewer identity
-**Then** its signature offers no per-viewer parameter, and the returned
-`View` is the single correct rendering for every player.
+**Given** `GetView`'s function signature
+**When** it is inspected
+**Then** it takes no viewer/caller identity parameter at all — this AC is
+true by construction (there is no code path that could branch on a viewer
+that was never passed in), not something a test can meaningfully fail;
+recorded here for traceability to the REQ, not as a falsifiable check.
 
 ### AC: group-game-status-message-is-singular
 **Requirements:** pair-matching-sessions#req:group-game-has-one-shared-message
