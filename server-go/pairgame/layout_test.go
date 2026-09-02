@@ -1,10 +1,10 @@
 package pairgame
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
-	"fmt"
 	"math/rand"
 	"testing"
 )
@@ -146,7 +146,7 @@ func TestDeriveFacesDoesNotUseLegacyRandSeeding(t *testing.T) {
 	legacySeed := int64(binary.BigEndian.Uint64(digest[:8]))
 	legacy := shuffledFaces(rand.New(rand.NewSource(legacySeed)), Sizes[sizeIndex].Pairs()) //nolint:gosec // deliberately reconstructing the old behaviour to assert we no longer do it
 
-	if fmt.Sprint(got) == fmt.Sprint(legacy) {
+	if bytes.Equal(got, legacy) {
 		t.Fatal("DeriveFaces still derives its layout the way legacy math/rand seeding would — " +
 			"the keyed layout space is collapsed to 2^31-1 states regardless of the secret")
 	}
@@ -163,7 +163,7 @@ func TestLegacyRandSeedCollapseIsReal(t *testing.T) {
 	a := shuffledFaces(rand.New(rand.NewSource(base)), 8)     //nolint:gosec // demonstrating the legacy defect
 	b := shuffledFaces(rand.New(rand.NewSource(base+mod)), 8) //nolint:gosec // demonstrating the legacy defect
 
-	if fmt.Sprint(a) != fmt.Sprint(b) {
+	if !bytes.Equal(a, b) {
 		t.Skip("legacy math/rand no longer reduces its seed mod 2^31-1; the guard above may be retired")
 	}
 }
