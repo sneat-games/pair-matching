@@ -1,12 +1,12 @@
 ---
 format: https://specscore.md/feature-specification
-status: Amending
+status: Stable
 ---
 
 # Feature: Telegram Pair-Matching bot (Solo, vs Bot, vs Humans)
 
 > [SpecScore.**Studio**](https://specscore.studio): | [Explore](https://specscore.studio/app/github.com/sneat-games/pair-matching/spec/features/telegram-pair-matching-bot?op=explore) | [Edit](https://specscore.studio/app/github.com/sneat-games/pair-matching/spec/features/telegram-pair-matching-bot?op=edit) | [Ask question](https://specscore.studio/app/github.com/sneat-games/pair-matching/spec/features/telegram-pair-matching-bot?op=ask) | [Request change](https://specscore.studio/app/github.com/sneat-games/pair-matching/spec/features/telegram-pair-matching-bot?op=request-change) |
-**Status:** Amending
+**Status:** Stable
 **Source Ideas:** pair-matching-game
 
 ## Summary
