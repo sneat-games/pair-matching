@@ -11,7 +11,7 @@ status: Stable
 
 ## Summary
 
-Play **Pair-Matching** (a memory/concentration game) inside Telegram through SneatBot's `/games`.
+Play **Pair-Matching** (a memory/concentration game) inside Telegram through @SneatGamesBot's `/games`.
 
 Three founder-specified modes are on offer: **Solo** (one human, no bot,
 state carried in the message's `callback_data`), **vs Bot** (one human plus
@@ -239,7 +239,7 @@ product decision.
 #### REQ: vs-humans-join-invite-and-start
 
 A vs-Humans game MUST offer BOTH invite mechanisms while in `StatusLobby` —
-a shareable deep link (`t.me/SneatBot?start=pmjoin_<gameID>`) and an
+a shareable deep link (`t.me/SneatGamesBot?start=pmjoin_<gameID>`) and an
 in-chat "🙋 Join" button — not a choice between them; a private-invite game
 additionally surfaces the deep link in its lobby card text for the host to
 forward. The bot MUST let the host (or whoever the product's UI designates)
@@ -647,7 +647,7 @@ third tier.
 
 **Given** a vs-Humans lobby
 **When** a player looks for a way to invite others
-**Then** both a `t.me/SneatBot?start=pmjoin_<gameID>` deep link and an
+**Then** both a `t.me/SneatGamesBot?start=pmjoin_<gameID>` deep link and an
 in-chat "🙋 Join" button are available — not one or the other depending on
 context — and starting the game with fewer than two seated players, or
 joining/starting a vs-Bot game, is rejected with user-facing feedback.
