@@ -174,3 +174,94 @@ func mustEncodeSample(t *testing.T) string {
 	}
 	return s
 }
+
+func TestNewSoloGame_InvalidSizeIndex(t *testing.T) {
+	if _, err := NewSoloGame(LayoutInline, -1, 1, nil); err != ErrInvalidSizeIndex {
+		t.Errorf("NewSoloGame(sizeIndex=-1) = %v, want ErrInvalidSizeIndex", err)
+	}
+	if _, err := NewSoloGame(LayoutInline, len(Sizes), 1, nil); err != ErrInvalidSizeIndex {
+		t.Errorf("NewSoloGame(sizeIndex=%d) = %v, want ErrInvalidSizeIndex", len(Sizes), err)
+	}
+}
+
+func TestGameState_Player_NotFound(t *testing.T) {
+	g := newTestGame(t, 0, 1, 1)
+	if _, ok := g.Player(PlayerID(99)); ok {
+		t.Error("Player(99) returned ok=true, want false")
+	}
+}
+
+func Test_itoa(t *testing.T) {
+	if got := itoa(0); got != "0" {
+		t.Errorf("itoa(0) = %q, want '0'", got)
+	}
+	if got := itoa(42); got != "42" {
+		t.Errorf("itoa(42) = %q, want '42'", got)
+	}
+}
+
+type dummyStrategy struct{}
+
+func (dummyStrategy) Choose(GameState, []uint8, PlayerID) int { return 0 }
+
+func TestMemoryStrategy_ExplicitFallback(t *testing.T) {
+	m := MemoryStrategy{Fallback: dummyStrategy{}}
+	if got := m.fallback(); got != (dummyStrategy{}) {
+		t.Errorf("fallback() = %v, want dummyStrategy{}", got)
+	}
+}
+
+func TestMemoryStrategy_NilFallback(t *testing.T) {
+	m := MemoryStrategy{}
+	if _, ok := m.fallback().(RandomMover); !ok {
+		t.Errorf("fallback() = %v, want RandomMover", m.fallback())
+	}
+}
+
+func TestValidateSizes_Panics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for odd cells")
+		}
+	}()
+	validateSizes([]Size{{Width: 3, Height: 3}})
+}
+
+func TestValidateSizes_ExceedsMaxPairs(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for exceeds MaxPairs")
+		}
+	}()
+	validateSizes([]Size{{Width: 12, Height: 12}})
+}
+
+func TestDecode_TruncatedErrors(t *testing.T) {
+	valid := mustEncodeSample(t)
+	raw, err := base64.RawURLEncoding.DecodeString(valid)
+	if err != nil {
+		t.Fatalf("DecodeString: %v", err)
+	}
+	for i := 1; i < len(raw); i++ {
+		truncated := base64.RawURLEncoding.EncodeToString(raw[:i])
+		if _, err := Decode(truncated); err == nil {
+			t.Errorf("Decode(truncated len %d) succeeded, want error", i)
+		}
+	}
+	// Also test with seed-derived mode truncated
+	soloSeed, err := NewSoloGame(LayoutSeedDerived, 0, 1, []byte("secret"))
+	if err != nil {
+		t.Fatalf("NewSoloGame: %v", err)
+	}
+	encodedSeed, err := soloSeed.Encode()
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	rawSeed, _ := base64.RawURLEncoding.DecodeString(encodedSeed)
+	for i := 1; i < len(rawSeed); i++ {
+		truncated := base64.RawURLEncoding.EncodeToString(rawSeed[:i])
+		if _, err := Decode(truncated); err == nil {
+			t.Errorf("Decode(truncated seed len %d) succeeded, want error", i)
+		}
+	}
+}

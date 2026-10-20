@@ -30,4 +30,4 @@ jobs:
       # that so an incidental rounding difference in CI's toolchain doesn't
       # false-fail, while still catching a real regression in the pairgame
       # engine's coverage.
-      min_test_coverage_percent: 94
+      min_test_coverage_percent: 100

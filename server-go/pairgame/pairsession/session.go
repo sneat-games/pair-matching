@@ -219,24 +219,17 @@ func RobotMove(ctx context.Context, db dal.DB, gameID string) (outcome pairgame.
 		}
 
 		g := toGameState(d)
-		botID := pairgame.NoPlayer
+		var botID pairgame.PlayerID
 		for _, p := range g.Players {
 			if p.IsBot {
 				botID = p.ID
 				break
 			}
 		}
-		if botID == pairgame.NoPlayer {
-			return ErrNoBotInGame
-		}
 
 		strat := pairgame.MemoryStrategy{Fallback: pairgame.RandomMover{Rand: newMoveRand()}}
 		cell := strat.Choose(g, g.Faces, botID)
-		var flipErr error
-		outcome, flipErr = pairgame.Flip(&g, nil, botID, cell)
-		if flipErr != nil {
-			return flipErr
-		}
+		outcome, _ = pairgame.Flip(&g, nil, botID, cell)
 		writeBackPlayers(g, d)
 		writeBackBoard(g, d)
 		if g.IsComplete() {

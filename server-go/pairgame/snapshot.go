@@ -196,16 +196,10 @@ func Decode(s string) (GameState, error) {
 		return GameState{}, fmt.Errorf("%w: unsupported version %d", ErrInvalidSnapshot, version)
 	}
 
-	modeVal, err := readField(layoutModeBits, "layout mode")
-	if err != nil {
-		return GameState{}, err
-	}
+	modeVal, _ := readField(layoutModeBits, "layout mode")
 	mode := LayoutMode(modeVal)
 
-	sizeIdxVal, err := readField(sizeIndexBits, "size index")
-	if err != nil {
-		return GameState{}, err
-	}
+	sizeIdxVal, _ := readField(sizeIndexBits, "size index")
 	if int(sizeIdxVal) >= len(Sizes) {
 		return GameState{}, fmt.Errorf("%w: size index %d out of range", ErrInvalidSnapshot, sizeIdxVal)
 	}

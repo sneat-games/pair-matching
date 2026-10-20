@@ -72,8 +72,8 @@ var Sizes = []Size{
 	{Width: 8, Height: 8}, // 8: 32 pairs, 64 cells
 }
 
-func init() {
-	for i, s := range Sizes {
+func validateSizes(sizes []Size) {
+	for i, s := range sizes {
 		if s.Cells()%2 != 0 {
 			panic("pairgame: Sizes[" + itoa(i) + "] has an odd cell count")
 		}
@@ -81,6 +81,10 @@ func init() {
 			panic("pairgame: Sizes[" + itoa(i) + "] exceeds MaxPairs")
 		}
 	}
+}
+
+func init() {
+	validateSizes(Sizes)
 }
 
 // itoa avoids pulling in strconv just for a panic message in init().

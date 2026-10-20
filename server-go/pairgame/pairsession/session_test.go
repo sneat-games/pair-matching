@@ -1,9 +1,11 @@
 package pairsession
 
 import (
+	"context"
 	"errors"
 	"testing"
 
+	"github.com/dal-go/dalgo/dal"
 	"github.com/sneat-games/pair-matching/server-go/pairgame"
 	"github.com/sneat-games/pair-matching/server-go/pairgame/dal4pairgame"
 )
@@ -675,5 +677,80 @@ func TestSettersDoNotTouchRuleState(t *testing.T) {
 		if after.Cells[i].Matched != before.Cells[i].Matched || after.Cells[i].MatchedBy != before.Cells[i].MatchedBy {
 			t.Fatalf("Cells[%d] match state changed", i)
 		}
+	}
+}
+
+type failingDB struct {
+	dal.DB
+}
+
+func (f failingDB) RunReadwriteTransaction(ctx context.Context, fn func(ctx context.Context, tx dal.ReadwriteTransaction) error, options ...dal.TransactionOption) error {
+	return errors.New("simulated tx failure")
+}
+
+func TestDBSaveFailures(t *testing.T) {
+	ctx, memDB := newMemoryDB(t)
+	fdb := failingDB{DB: memDB}
+
+	if _, err := CreateVsBotGame(ctx, fdb, 0, PlayerRef{UserID: "u1"}, 1, 0); err == nil {
+		t.Error("CreateVsBotGame on failing DB expected error, got nil")
+	}
+	if _, err := CreateVsHumansGame(ctx, fdb, 0, PlayerRef{UserID: "u1"}, 0); err == nil {
+		t.Error("CreateVsHumansGame on failing DB expected error, got nil")
+	}
+}
+
+func TestStartGame_InvalidSizeIndex(t *testing.T) {
+	ctx, db := newMemoryDB(t)
+	gameID, err := CreateVsHumansGame(ctx, db, 0, PlayerRef{UserID: "alice"}, 0)
+	if err != nil {
+		t.Fatalf("CreateVsHumansGame: %v", err)
+	}
+	if err := JoinGame(ctx, db, gameID, PlayerRef{UserID: "bob"}); err != nil {
+		t.Fatalf("JoinGame: %v", err)
+	}
+	// Corrupt size index in DB
+	_ = db.RunReadwriteTransaction(ctx, func(ctx context.Context, tx dal.ReadwriteTransaction) error {
+		entry, _ := dal4pairgame.GetGameTx(ctx, tx, gameID)
+		entry.Data.SizeIndex = 255
+		return tx.Set(ctx, entry.Record)
+	})
+	if err := StartGame(ctx, db, gameID); err == nil {
+		t.Error("StartGame with invalid SizeIndex expected error, got nil")
+	}
+}
+
+func TestFlip_CellOutOfRange(t *testing.T) {
+	ctx, db := newMemoryDB(t)
+	gameID, err := CreateVsBotGame(ctx, db, 0, PlayerRef{UserID: "alice"}, 1, 0)
+	if err != nil {
+		t.Fatalf("CreateVsBotGame: %v", err)
+	}
+	if _, err := Flip(ctx, db, gameID, "alice", 9999); err == nil {
+		t.Error("Flip with out-of-range cell expected error, got nil")
+	}
+}
+
+func TestRobotMove_NoBotInGame(t *testing.T) {
+	ctx, db := newMemoryDB(t)
+	gameID, err := CreateVsHumansGame(ctx, db, 0, PlayerRef{UserID: "alice"}, 0)
+	if err != nil {
+		t.Fatalf("CreateVsHumansGame: %v", err)
+	}
+	if err := JoinGame(ctx, db, gameID, PlayerRef{UserID: "bob"}); err != nil {
+		t.Fatalf("JoinGame: %v", err)
+	}
+	if err := StartGame(ctx, db, gameID); err != nil {
+		t.Fatalf("StartGame: %v", err)
+	}
+	if _, err := RobotMove(ctx, db, gameID); !errors.Is(err, ErrNoBotInGame) {
+		t.Errorf("RobotMove on vs-humans game = %v, want ErrNoBotInGame", err)
+	}
+}
+
+func TestMapNotFound_GenericError(t *testing.T) {
+	orig := errors.New("generic error")
+	if got := mapNotFound(orig); got != orig {
+		t.Errorf("mapNotFound(%v) = %v, want same error", orig, got)
 	}
 }

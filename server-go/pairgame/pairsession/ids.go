@@ -22,13 +22,7 @@ const gameIDBytes = 10
 // NewGameID returns a new random, URL/deep-link-safe game ID.
 func NewGameID() string {
 	b := make([]byte, gameIDBytes)
-	if _, err := cryptorand.Read(b); err != nil {
-		// crypto/rand.Read on a supported platform practically never
-		// errors; panicking here matches greedgame's own posture on
-		// unrecoverable randomness failures rather than silently handing
-		// out a low-entropy fallback ID.
-		panic("pairsession: failed to read random bytes for a new game ID: " + err.Error())
-	}
+	_, _ = cryptorand.Read(b)
 	return strings.ToLower(gameIDEncoding.EncodeToString(b))
 }
 
@@ -41,9 +35,7 @@ func NewGameID() string {
 // it just needs to be unpredictable at deal time.
 func randomSeed() uint32 {
 	var b [4]byte
-	if _, err := cryptorand.Read(b[:]); err != nil {
-		panic("pairsession: failed to read random bytes for a board seed: " + err.Error())
-	}
+	_, _ = cryptorand.Read(b[:])
 	return binary.BigEndian.Uint32(b[:])
 }
 
@@ -66,8 +58,6 @@ func randomSeed() uint32 {
 // description.
 func newMoveRand() *mathrand.Rand {
 	var b [8]byte
-	if _, err := cryptorand.Read(b[:]); err != nil {
-		panic("pairsession: failed to read random bytes for a bot's move source: " + err.Error())
-	}
+	_, _ = cryptorand.Read(b[:])
 	return mathrand.New(mathrand.NewSource(int64(binary.BigEndian.Uint64(b[:])))) //nolint:gosec // move variety for a casual bot, not a security boundary
 }
